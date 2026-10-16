@@ -49,8 +49,10 @@ export const SURFACES = {
   // aquaplaning: the tyres are riding on water — no grip, no steering, no throttle, no brakes
   puddle: { grip: 0.02, dragMult: 0.5, steerMult: 0, maxSpeedMult: 1.0, brakeMult: 0.05, accelMult: 0 },
   leaves: { grip: 0.6, dragMult: 1.2, steerMult: 0.9, maxSpeedMult: 0.92, brakeMult: 0.8, accelMult: 0.9 },
-  ice: { grip: 0.03, dragMult: 0.5, steerMult: 0.22, maxSpeedMult: 1.0, brakeMult: 0.12, accelMult: 0.25 }, // sheet ice: you slide
+  ice: { grip: 0.02, dragMult: 0.45, steerMult: 0.5, maxSpeedMult: 1.0, brakeMult: 0.1, accelMult: 0.25 }, // black ice: the nose turns, the car keeps sliding
   snow: { grip: 0.6, dragMult: 3.0, steerMult: 0.8, maxSpeedMult: 0.55, brakeMult: 1, accelMult: 0.7 },
+  // winter: fresh powder between the packed ruts
+  powder: { grip: 0.7, dragMult: 1.8, steerMult: 0.9, maxSpeedMult: 0.8, brakeMult: 0.9, accelMult: 0.75 },
   // the frozen lake: slippery but skate-able (momentum is king)
   lakeIce: { grip: 0.16, dragMult: 0.5, steerMult: 0.55, maxSpeedMult: 1.0, brakeMult: 0.3, accelMult: 0.5 },
 } satisfies Record<string, Surface>;

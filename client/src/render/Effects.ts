@@ -95,6 +95,8 @@ export class ScreenFx {
   private leavesEl: HTMLDivElement;
   private speedEl!: HTMLDivElement;
   private speedK = 0;
+  private whiteEl!: HTMLDivElement;
+  private whiteQ = -1;
   private leavesA = -1;
   private speedQ = -1;
   private rainQ = -1;
@@ -119,6 +121,7 @@ export class ScreenFx {
     }
     // A face full of leaves (autumn leaf-kick): big leaves over most of the view, thickest in the middle.
     this.speedEl = div(root, 'fx-speed');
+    this.whiteEl = div(root, 'fx-white');
     this.leavesEl = div(root, 'fx-leaves');
     // Drawn ONCE into a single canvas (one GPU layer), then the whole sheet sways with a cheap CSS
     // transform. Dozens of separately animated big emoji were what made the leaf waves lag.
@@ -129,18 +132,18 @@ export class ScreenFx {
       const g = cv.getContext('2d')!;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      for (let i = 0; i < 38; i++) {
+      const COLS = [['#f08a3a', '#b9441a'], ['#e8582a', '#9c2d14'], ['#f4b43c', '#c8701e'], ['#d9702a', '#7a3412'], ['#c8402a', '#7c1e10']];
+      for (let i = 0; i < 42; i++) {
         const cx = 0.5 + (Math.random() - 0.5) * 1.15 * Math.sqrt(Math.random());
         const cy = 0.47 + (Math.random() - 0.5) * 1.05 * Math.sqrt(Math.random());
-        const size = 70 + Math.random() * 100;
+        const size = 60 + Math.random() * 95;
         g.save();
         g.translate(cx * cv.width, cy * cv.height);
         g.rotate(Math.random() * Math.PI * 2);
-        g.font = `${size.toFixed(0)}px system-ui, 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
-        g.shadowColor = 'rgba(0,0,0,.3)';
-        g.shadowBlur = 8;
-        g.shadowOffsetY = 4;
-        g.fillText(Math.random() < 0.5 ? '🍂' : '🍁', 0, 0);
+        g.shadowColor = 'rgba(0,0,0,.35)';
+        g.shadowBlur = 10;
+        g.shadowOffsetY = 5;
+        drawLeaf(g, size, COLS[i % COLS.length], Math.random() < 0.55);
         g.restore();
       }
       this.leavesEl.appendChild(cv);
@@ -156,6 +159,15 @@ export class ScreenFx {
     this.speedQ = q;
     this.speedEl.style.opacity = String(q);
     this.speedEl.classList.toggle('on', q > 0);
+  }
+
+  /** 0..1 blizzard whiteout */
+  setWhiteout(k: number) {
+    const q = Math.round(Math.max(0, Math.min(1, k)) * 20) / 20;
+    if (q === this.whiteQ) return;
+    this.whiteQ = q;
+    this.whiteEl.style.opacity = String(q);
+    this.whiteEl.classList.toggle('on', q > 0);
   }
 
   /** 0..1 how much of the screen is covered by kicked-up leaves */
@@ -210,19 +222,8 @@ export class ScreenFx {
 
   /** quick seasonal sweep across the screen when a new season starts */
   flourish(si: number, calm = false) {
-    const ICONS = ['🌸', '☀️', '🍂', '❄️'];
     const el = document.createElement('div');
     el.className = `fx-flourish s${si}${calm ? ' calm' : ''}`;
-    if (!calm) {
-      for (let i = 0; i < 9; i++) {
-        const s = document.createElement('i');
-        s.textContent = ICONS[si];
-        const fall = si === 1 || si === 3; // sun and snow fall from the top; petals and leaves sweep across
-        s.style.cssText = (fall ? `left:${(4 + Math.random() * 88).toFixed(1)}%;top:0;` : `top:${8 + Math.random() * 78}%;`) +
-          `font-size:${26 + Math.random() * 30}px;animation-delay:${(Math.random() * 0.35).toFixed(2)}s`;
-        el.appendChild(s);
-      }
-    }
     this.root.appendChild(el);
     window.setTimeout(() => el.remove(), 1700);
   }
@@ -233,6 +234,46 @@ export class ScreenFx {
     this.update(0);
     this.updateGlare(0, 0, false, false);
   }
+}
+
+/** a drawn autumn leaf (maple or oval), centred on the origin, pointing up */
+function drawLeaf(g: CanvasRenderingContext2D, size: number, [light, dark]: string[], maple: boolean) {
+  const r = size / 2;
+  const grad = g.createLinearGradient(-r, -r, r, r);
+  grad.addColorStop(0, light);
+  grad.addColorStop(1, dark);
+  g.fillStyle = grad;
+  g.beginPath();
+  if (maple) {
+    // five pointed lobes
+    const pts = 10;
+    for (let k = 0; k <= pts * 2; k++) {
+      const a = -Math.PI / 2 + (k / (pts * 2)) * Math.PI * 2;
+      const lobe = k % 2 === 0 ? (k % 4 === 0 ? 1 : 0.78) : 0.42;
+      const rr = r * lobe * (a > 0.4 && a < 2.7 ? 0.75 : 1);
+      const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+      if (k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+  } else {
+    g.moveTo(0, -r);
+    g.bezierCurveTo(r * 0.75, -r * 0.55, r * 0.6, r * 0.55, 0, r * 0.8);
+    g.bezierCurveTo(-r * 0.6, r * 0.55, -r * 0.75, -r * 0.55, 0, -r);
+  }
+  g.closePath();
+  g.fill();
+  g.shadowColor = 'transparent';
+  // veins and stem
+  g.strokeStyle = 'rgba(70,25,8,.45)';
+  g.lineWidth = Math.max(1.2, size * 0.022);
+  g.beginPath();
+  g.moveTo(0, r * 1.05); g.lineTo(0, -r * 0.8);
+  for (const s of [-1, 1]) {
+    for (const t of [0.15, -0.2, -0.5]) {
+      g.moveTo(0, r * t);
+      g.lineTo(s * r * (maple ? 0.6 : 0.42), r * (t - 0.3));
+    }
+  }
+  g.stroke();
 }
 
 function div(root: HTMLElement, cls: string) {

@@ -38,34 +38,34 @@ Add `?debug` to the URL for an FPS / track-position / draw-call overlay.
 
 | Rubric / bonus | Where it is in the game |
 |---|---|
-| **Theme (25)**: seasons drive the gameplay | Every season has its own rule: Spring petal chain (speed), Summer heat + cloud shade (stop-and-go), Autumn leaf-kick + leaf waves (visibility), Winter snow load + heaters (weight, stopping). |
-| **Gameplay & Fun (30)**: clear goal, playable loop | One lap race vs 3 bots or a friend. A season strip at the top shows every car's progress through Spring → Winter. Bots catch up gently so races stay close; Easy / Normal / Hard. |
+| **Theme (25)**: seasons drive the gameplay | Every season has its own rule: Spring petal chain (speed), Summer heat + cloud shade (stop-and-go), Autumn leaf-kick + leaf waves (visibility), Winter snow load + ramps, ruts and snowballs (weight, line choice). |
+| **Gameplay & Fun (30)**: clear goal, playable loop | One lap race vs 3 bots, a friend on the same screen, or up to 5 players online (QR code join). A season strip at the top shows every car's progress through Spring → Winter. Bots catch up gently so races stay close; Easy / Normal / Hard. |
 | **Art & Audio (20)**: one consistent style | Low-poly geometry + one palette per season, gradient sky, glow on lights and fire; all sound and music synthesised live (engine, tyres, ambience, per-season music). |
 | **Playable Build (15)** | `npm start` (one process) or the Render blueprint; auto-recovers stuck cars; drops post-effects on slow GPUs; works on phones with touch buttons. |
 | **Originality (10)** | Seasons as *driving rules*: braking into a moving cloud's shadow to cool, kicking leaves into a rival's face, parking on a heater to shed snow. |
-| Bonus: all four seasons play differently | ✅ see above |
-| Bonus: season change is part of the play | ✅ your spring petal chain carries into summer (still faster, but the engine runs hotter); the strip shows the next season coming |
-| Bonus: art / audio made during the event | ✅ all models are built in code, all audio is synthesised (no asset files) |
-| Bonus: accessibility | ✅ Settings: remap keys for both players, colour-blind helpers (icon markers on hazards, blue→orange heat scale, name tags), reduce flashes & shake, music / effects volume, graphics quality; adjustable bot difficulty |
-| Bonus: teaches without text | ✅ roadside picture signs before each season (🌸➜⚡, ☀️🌡️➜☁️🛑➜❄️, 🍂🚗➜💨🙈, ❄️🐢➜🔥🛑) plus the animated How to play cards |
+| Bonus: all four seasons play differently | Yes: see above |
+| Bonus: season change is part of the play | Yes: your spring petal chain carries into summer (still faster, but the engine runs hotter); the strip shows the next season coming |
+| Bonus: art / audio made during the event | Yes: all models are built in code, all audio is synthesised (no asset files) |
+| Bonus: accessibility | Yes: Settings: remap keys for both players, colour-blind helpers (name tags on all cars, blue-to-orange heat scale), reduce flashes & shake, music / effects volume, graphics quality; adjustable bot difficulty |
+| Bonus: teaches without text | Yes: animated How to play cards with mini scenes, and short in-race hints when they matter ("brake to cool", "stop here") |
 
-## Play with a friend on another device
+## Online: up to 5 players, join by QR code
 
-Only one person runs the game; everyone else just opens a link in a browser (phone or laptop).
+Only one person runs the game; everyone else just scans a QR code (or opens a link) on a phone or laptop.
 
 - **Same Wi-Fi:** `npm run build && npm start`, then your friend opens the `LAN: http://192.168.x.x:3000` address the server prints. (On Windows, allow Node.js through the firewall when asked.)
-- **Anywhere (temporary link):** keep `npm start` running and in a second terminal run `npx cloudflared tunnel --url http://localhost:3000`; share the `https://….trycloudflare.com` link it prints.
+- **Anywhere, even on mobile data (one command):** `npm run share`. It builds, starts the server and opens a free public `https://….trycloudflare.com` link (printed in a box). Open `http://localhost:3000` on the laptop as usual: the lobby QR code uses the public link automatically. The link changes each time you run it.
 - **Permanent link (best for judging):** deploy to [Render](https://render.com) — *New → Blueprint*, pick this repo; `render.yaml` sets everything up (build `npm install --include=dev && npm run build`, start `npm start`). Free instances sleep when idle, so open the link a minute before you demo.
 
-Then: *2 Players · two devices* → one player creates a room, the other joins with the 4-letter code.
+Then: *Online · up to 5 players* → *Create room*. The lobby shows a QR code (click it to show it full screen on a projector) and a 4-letter code. Scanning the QR opens the game already pointed at that room: type a name, tap *Join*. The host picks the bot difficulty and starts; every race has 5 cars, so empty seats are bots. When the page is opened on `localhost`, the QR automatically uses this computer's Wi-Fi address instead.
 
 ## Game modes
 
 | Mode | How |
 |---|---|
-| 🏁 Solo | You vs 3 bots. |
-| 👥 2 Players · one screen | Split screen on one computer: **P1 = W A S D** (left half), **P2 = arrow keys** (right half), plus 2 bots. Two gamepads also work (pad 1 = P1, pad 2 = P2). |
-| 🌐 2 Players · two devices | One player clicks *Create room* and reads out the 4-letter code; the other enters it and clicks *Join*. The host starts the race. Both devices must open the same server address (run `npm start` on one laptop and open the LAN URL it prints on the other). Each device drives its own car; the host also runs the bots. |
+| Solo | You vs 3 bots. |
+| 2 Players · one screen | Split screen on one computer: **P1 = W A S D** (left half), **P2 = arrow keys** (right half), plus 2 bots. Two gamepads also work (pad 1 = P1, pad 2 = P2). |
+| Online · up to 5 players | The host clicks *Create room*; up to 4 more players scan the lobby's QR code (or type the 4-letter code) on their phones or laptops. Phones get touch controls and go full screen. Each device drives its own car; the host's device also runs the bots that fill empty seats (always 5 cars). |
 
 ## Controls
 
@@ -75,17 +75,17 @@ Then: *2 Players · two devices* → one player creates a room, the other joins 
 | Brake / reverse | S / ↓ | LT |
 | Steer | A D / ← → | Left stick |
 | Pause | Esc | Start |
-| Settings (remap keys, accessibility, volume) | Menu → ⚙️ Settings | — |
+| Settings (remap keys, accessibility, volume) | Menu → Settings | — |
 | Mute sound | M | — |
 
 ## How each season changes the way you drive
 
 | Season | Mechanic |
 |---|---|
-| 🌱 Spring | Petal chain: swirling clusters of cherry petals (pink light columns) float over one lane each in a zig-zag. Fly through them in order — every link adds top speed (up to +30%); miss one and the chain breaks. Some links sit in the water spills (aquaplane above 60% speed) or next to mud: is the link worth it? |
-| ☀️ Summer | Cloud hopping: the sun overheats your engine in a few seconds. Small one-lane clouds drift down the road in a zig-zag and throw cloud-shaped shadows. A shadow blocks the sun, but it only **cools** you while you're slow: hop into a shadow, brake for a moment, then go. Get it wrong and your car bursts into flames and stalls. |
-| 🍂 Autumn | Leaf-kick: tear through a leaf pile and you throw a cloud of leaves out behind you — whoever follows close in your lane is blinded for a moment (bots lose their line). Drive into piles when someone's on your tail; change lanes to dodge a kick. A few waves of blown leaves sweep down the road and briefly cover your screen. Branches fall from the trees. |
-| ❄️ Winter | Frozen lake: the inside of the big corner is an open frozen lake — cut straight across it, but if you slow down the ice cracks and you fall through. Snow piles up on your car (heavier = slower, wider turns); **stop** on a glowing heater pad and sit still to melt it off (driving over it does nothing). Packed snow drifts block lanes. |
+| Spring | Petal chain: swirling clusters of cherry petals (pink light columns) float over one lane each in a zig-zag. Fly through them in order — every link adds top speed (up to +30%); miss one and the chain breaks. Some links sit in the water spills (aquaplane above 60% speed) or next to mud: is the link worth it? |
+| Summer | Cloud hopping: the sun overheats your engine in a few seconds. Small one-lane clouds drift down the road in a zig-zag and throw cloud-shaped shadows. A shadow blocks the sun, but it only **cools** you while you're slow: hop into a shadow, brake for a moment, then go. Get it wrong and your car bursts into flames and stalls. |
+| Autumn | Leaf-kick: tear through a leaf pile and you throw a cloud of leaves out behind you — whoever follows close in your lane is blinded for a moment (bots lose their line). Drive into piles when someone's on your tail; change lanes to dodge a kick. A few waves of blown leaves sweep down the road and briefly cover your screen. Branches fall from the trees. |
+| Winter | Snow load: snow piles onto your car (heavier = slower, wider turns). Hit a **snow ramp** fast to jump; the landing shakes the snow off (too slow and it's just a bump). Packed ruts run down each lane and every car leaves tracks: stay in them, because the fresh powder between them slows you and loads more snow on. Giant snowballs roll across the road ahead of you (a hit spins you out), blizzard gusts white out your view, and black ice makes the back end slide. The frozen lake is a shortcut that cracks if you go slow. |
 
 ## Project layout
 
@@ -100,7 +100,7 @@ scripts/ dev checks
 
 - [x] Phase 0: skeleton, spline track, walls, chase camera, arcade car physics
 - [x] Phase 1: solo race MVP (sectors, hazards, laps, bots, HUD)
-- [x] Phase 2: two players — split screen on one computer, or two devices over LAN
+- [x] Phase 2: multiplayer — split screen on one computer, or up to 5 devices online (QR code join, bots fill empty seats)
 - [x] Phase 3: juice — synthesised sound and music, particles, How to play cards, polished UI
 - [x] Phase 4: lock down — deploy config, README
 
@@ -113,5 +113,6 @@ scripts/ dev checks
 | Express | Library | MIT | https://expressjs.com |
 | Vite | Tool | MIT | https://vitejs.dev |
 | tsx | Tool | MIT | https://github.com/privatenumber/tsx |
+| qrcode-generator (Kazuhiko Arase), vendored in `client/src/vendor` | Library | MIT | https://github.com/kazuhikoarase/qrcode-generator |
 
-All art is procedural low-poly geometry made by the team in code. All sound effects and music are synthesised live in the browser with the Web Audio API (no audio files). Press **M** or the 🔊 button to mute.
+All art is procedural low-poly geometry made by the team in code. All sound effects and music are synthesised live in the browser with the Web Audio API (no audio files). Press **M** or the button to mute.

@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 
-export const PLAYER_COLORS = [0xe0413a, 0x3a7be0, 0xf0c419, 0x9b4fd6];
+export const PLAYER_COLORS = [0xe0413a, 0x3a7be0, 0xf0c419, 0x9b4fd6, 0x2fb36a];
 
 export function createCarMesh(color: number): THREE.Group {
   const g = new THREE.Group();

@@ -28,16 +28,21 @@ import { Menu } from './ui/Menu';
 import { Net } from './net/Net';
 import { HowToPlay } from './ui/HowToPlay';
 import { Settings, type Prefs } from './ui/Settings';
-import { HEATERS, heaterT } from '@shared/winter';
+import { HEATER_FUEL, HEATERS, heaterT } from '@shared/winter';
 import { Sfx } from './audio/Sfx';
 import { Sky } from './render/Sky';
+import { LeafFx } from './render/LeafFx';
+import { WaveView } from './render/WaveView';
+import { WinterView } from './render/WinterView';
+import { blizzardAt } from '@shared/winter';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { WAVE } from '@shared/leafwaves';
+import { WAVE, WAVES } from '@shared/leafwaves';
+const WAVE_SPEED = WAVES[0].speed;
 import type { Racer } from './game/Race';
 import type { RaceStart } from '@shared/protocol';
 
@@ -125,13 +130,18 @@ const hazardView = new HazardView(track, hazards.map);
 scene.add(hazardView.group);
 const seasons = new Seasons(track, hazards.map, scene, hemi, sun);
 const particles = new Particles(scene);
-const fallingView = new FallingBranchView(track, hazards.falling);
+const leafFx = new LeafFx(scene);
+const winterView = new WinterView(track, hazards.snowballs, hazards.map.offset, particles);
+scene.add(winterView.group);
+const fallingView = new FallingBranchView(track, hazards.falling, leafFx);
 scene.add(fallingView.group);
 const gustView = new GustView(scene, particles);
 const lakeView = new LakeView();
 scene.add(lakeView.group);
 const cloudView = new CloudView(hazards.clouds, track);
 scene.add(cloudView.group);
+const waveView = new WaveView(hazards.waves);
+scene.add(waveView.group);
 const petalView = new PetalView(track);
 scene.add(petalView.group);
 
@@ -143,6 +153,18 @@ const screenFx = new ScreenFx(uiRoot);
 const hud = new HUD(uiRoot);
 const input = new Input();
 if (input.isTouch) document.body.classList.add('touch');
+const rotateHint = document.createElement('div');
+rotateHint.className = 'rotate-hint';
+rotateHint.textContent = 'Turn your phone sideways to race';
+uiRoot.appendChild(rotateHint);
+/** phones: go full screen in landscape when joining a race (silently ignored where unsupported, e.g. iPhone) */
+function phoneFullscreen() {
+  if (!input.isTouch || document.fullscreenElement) return;
+  const el = document.documentElement;
+  el.requestFullscreen?.()
+    .then(() => (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+    .catch(() => {});
+}
 
 // ---------- Views: one per local player (split-screen = two side by side) ----------
 interface View {
@@ -200,7 +222,7 @@ const menu = new Menu(uiRoot, {
   onMenu: () => toMenu(),
   onResume: () => setPaused(false),
   onOnlineCreate: (name) => net.create(name),
-  onOnlineJoin: (code, name) => net.join(code, name),
+  onOnlineJoin: (code, name) => { phoneFullscreen(); net.join(code, name); },
   onOnlineStart: (d) => net.requestStart(d),
   onOnlineBack: () => { net.leave(); toMenu(); },
 });
@@ -240,66 +262,8 @@ function textSprite(text: string, bg: string, w = 256, h = 64, font = 'bold 34px
 }
 const cbMarkers = new THREE.Group();
 {
-  const ICON: Record<string, string> = { puddle: '💧', mud: '🟤', ice: '🧊', leaves: '🍂', snow: '⛄' };
-  for (const h of hazards.map.placed) {
-    const ic = ICON[h.type];
-    if (!ic) continue;
-    let tm = (h.t0 + ((h.t1 - h.t0 + 1) % 1) / 2) % 1;
-    const p = trackPoint(track, tm, (h.lat0 + h.lat1) / 2);
-    const sp = textSprite(ic, '', 96, 96, '72px system-ui');
-    sp.position.set(p.x, 3.2, p.z);
-    sp.scale.set(2.6, 2.6, 1);
-    cbMarkers.add(sp);
-    void tm;
-  }
-  for (const h of HEATERS) {
-    const p = trackPoint(track, heaterT(h, hazards.map.offset), (h.lat0 + h.lat1) / 2);
-    const sp = textSprite('🔥', '', 96, 96, '72px system-ui');
-    sp.position.set(p.x, 3.2, p.z);
-    sp.scale.set(2.8, 2.8, 1);
-    cbMarkers.add(sp);
-  }
   cbMarkers.visible = false;
   scene.add(cbMarkers);
-}
-// Roadside picture signs before each season: teach the rule with icons, no words.
-{
-  const SIGNS: { season: number; icons: string; bg: [string, string] }[] = [
-    { season: 0, icons: '🌸🌸🌸 ➜ ⚡', bg: ['#ffb3d4', '#e05592'] },
-    { season: 1, icons: '☀️🌡️ ➜ ☁️🛑 ➜ ❄️', bg: ['#ffe27a', '#f2a01c'] },
-    { season: 2, icons: '🍂🚗 ➜ 💨🙈', bg: ['#ffb27a', '#c2531e'] },
-    { season: 3, icons: '❄️🚗🐢 ➜ 🔥🛑', bg: ['#e8f4ff', '#6fa8dc'] },
-  ];
-  const postGeo = new THREE.CylinderGeometry(0.18, 0.18, 4.6, 6).translate(0, 2.3, 0);
-  const postMat = new THREE.MeshLambertMaterial({ color: 0x3a3f48 });
-  for (const sg of SIGNS) {
-    const cv = document.createElement('canvas');
-    cv.width = 768; cv.height = 256;
-    const g = cv.getContext('2d')!;
-    const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, sg.bg[0]); grad.addColorStop(1, sg.bg[1]);
-    g.fillStyle = '#fff';
-    g.beginPath(); g.roundRect(0, 0, 768, 256, 40); g.fill();
-    g.fillStyle = grad;
-    g.beginPath(); g.roundRect(12, 12, 744, 232, 32); g.fill();
-    g.font = '120px system-ui';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(sg.icons, 384, 136, 720);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(9, 3), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
-    const before = sg.season === 0 ? -34 : 48; // spring's sign sits just past the start line
-    const t = (seasonToT(sg.season, 0, hazards.map.offset) - before / track.length + 1) % 1;
-    const p = trackPoint(track, t, -17);
-    const sign = new THREE.Group();
-    sign.position.set(p.x, 0, p.z);
-    sign.rotation.y = p.heading + Math.PI; // face the oncoming cars
-    board.position.y = 5.6;
-    sign.add(board);
-    for (const x of [-3.2, 3.2]) { const post = new THREE.Mesh(postGeo, postMat); post.position.x = x; post.position.y = 1.5; post.scale.y = 1.0; sign.add(post); }
-    scene.add(sign);
-  }
 }
 let prefs: Prefs = settings.prefs;
 function applyPrefs(p: Prefs) {
@@ -313,27 +277,51 @@ function applyPrefs(p: Prefs) {
 howTo.onClose = () => { if (state === 'menu') menu.showMain(); };
 
 // ---------- Online ----------
-net.onLobby = (code, players) => {
-  if (state === 'race' || state === 'paused') return; // a lobby update mid-race (e.g. someone left) is handled by onLeft
-  menu.showLobby(code, players.map((p) => ({ name: p.name, host: p.host, me: p.id === net.id })), net.isHost);
+const showLobby = () => menu.showLobby(net.code, net.players.map((p) => ({ name: p.name, host: p.host, me: p.id === net.id })), net.isHost);
+net.onLobby = (code) => {
+  if (code !== qrFor) {
+    qrFor = code;
+    shareBase().then((base) => {
+      if (net.code !== code) return;
+      menu.setJoinUrl(`${base}/?join=${code}`);
+      if (state === 'menu') showLobby();
+    });
+  }
+  if (state === 'race' || state === 'paused' || state === 'results') return; // mid-race lobby updates (e.g. someone left) are handled by onLeft
+  showLobby();
 };
-net.onError = (m) => menu.onlineMsg('⚠️ ' + m);
+/** The address other devices should open: the public link when the server runs with `npm run share`,
+ *  else (page opened on localhost, which would point at the phone itself) this machine's Wi-Fi address,
+ *  else the page's own address (e.g. the deployed site). */
+let qrFor = '';
+function shareBase(): Promise<string> {
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  return fetch('/api/lan')
+    .then((r) => r.json() as Promise<{ public: string | null; urls: string[] }>)
+    .then((j) => {
+      if (j.public) return j.public;
+      if (local && j.urls[0]) return `${location.protocol}//${new URL(j.urls[0]).hostname}${location.port ? ':' + location.port : ''}`;
+      return location.origin;
+    })
+    .catch(() => location.origin);
+}
+net.onError = (m) => menu.onlineMsg(m);
 net.onStart = (st) => setTimeout(() => startOnline(st), st.delayMs);
 net.onState = (snaps) => { if (mode === 'online' && race) for (const sn of snaps) race.applySnap(sn); };
 net.onLeft = (id) => {
   if (mode !== 'online' || !race) return;
-  const r = race.racers.find((x) => x.id === id);
-  if (r && !r.finished) { r.finished = true; r.human = false; fullView.hud.toast(`👋 ${r.name} left`, 'bad'); }
+  const r = race.markLeft(id);
+  if (r) fullView.hud.toast(`${r.name} left`, 'bad');
 };
 net.onDisconnect = () => {
-  if (mode === 'online' && state !== 'menu') { fullView.hud.toast('📡 Disconnected', 'bad'); }
+  if (mode === 'online' && state !== 'menu') { fullView.hud.toast('Disconnected', 'bad'); }
 };
 function backToLobby() {
   race?.dispose();
   race = null;
   hud.show(false);
-  menu.showLobby(net.code, net.players.map((p) => ({ name: p.name, host: p.host, me: p.id === net.id })), net.isHost);
   state = 'menu';
+  showLobby();
 }
 
 // ---------- Sound ----------
@@ -342,7 +330,7 @@ sfx.startMusic();
 {
   const btn = document.createElement('button');
   btn.className = 'mute-btn';
-  const sync = () => { btn.textContent = sfx.muted ? '🔇' : '🔊'; btn.title = 'Sound (M)'; };
+  const sync = () => { btn.textContent = sfx.muted ? 'SOUND OFF' : 'SOUND ON'; btn.title = 'Sound (M)'; btn.classList.toggle('off', sfx.muted); };
   sync();
   btn.onclick = () => { sfx.toggleMute(); sync(); btn.blur(); };
   document.body.appendChild(btn);
@@ -355,6 +343,7 @@ sfx.startMusic();
 }
 let lastCd = 99;
 let touchShown = false;
+let blizzardOn = false;
 const sunGlowDir = new THREE.Vector3();
 const passSide = new Map<Racer, number>();
 let lastPlaceSfx = 0;
@@ -373,8 +362,11 @@ hazards.onEvent = (car, e) => {
       particles.emit(car.x, 0.5, car.z, 30, 0x2f6fa8, { speed: 6, up: 9, size: 0.4, life: 1.2 });
       particles.emit(car.x, 0.5, car.z, 20, 0xe8f4ff, { speed: 7, up: 6, size: 0.5, life: 1 });
     }
+    else if (e === 'land') particles.emit(car.x, 1.2, car.z, 30, 0xffffff, { speed: 6, up: 5, size: 0.45, life: 1 });
+    else if (e === 'snowball') { particles.emit(car.x, 1.4, car.z, 40, 0xffffff, { speed: 8, up: 6, size: 0.5, life: 1.2 }); }
     else if (e === 'snowHit') particles.emit(car.x + Math.sin(car.heading) * 2, 1, car.z + Math.cos(car.heading) * 2, 26, 0xffffff, { speed: 6, up: 6, size: 0.45, life: 1 });
     else if (e === 'stall') particles.emit(car.x, 1.2, car.z, 16, 0xeeeeee, { speed: 1.5, up: 2, gravity: -3, life: 1.6, size: 0.6 });
+    else if (e === 'leaves') leafFx.emit(car.x, 0.4, car.z, 14, { spread: 4, vy: 5, life: 2, size: 0.5 });
     else if (surfaceColor[e]) particles.emit(car.x, 0.3, car.z, 10, surfaceColor[e]!, { speed: 4, up: 5 });
   }
   if (near && e === 'petal') particles.emit(car.x, 1.4, car.z, 22, 0xffb7d5, { speed: 5, up: 4, gravity: 3, life: 0.9, size: 0.35 });
@@ -389,6 +381,9 @@ hazards.onEvent = (car, e) => {
       case 'stall': sfx.stall(); break;
       case 'heater': sfx.melt(); break;
       case 'snowHit': sfx.snowHit(); break;
+      case 'jump': sfx.jump(); break;
+      case 'land': sfx.land(); break;
+      case 'snowball': sfx.snowHit(); break;
       case 'iceBreak': sfx.iceBreak(); break;
       case 'crack': sfx.crack(); break;
       case 'ice': sfx.ice(); break;
@@ -400,11 +395,15 @@ hazards.onEvent = (car, e) => {
   if (!v || !v.racer) return;
   if (e === 'petal') {
     const c = v.racer.hz.chain;
-    if (c >= 3) v.hud.toast(`🌸 x${c}`, 'pink');
+    if (c >= 3) v.hud.toast(`CHAIN x${c}`, 'pink');
   }
-  if (e === 'chainBreak') v.hud.toast('🌸 CHAIN BROKEN', 'bad');
-  if (e === 'blinded') { v.hud.toast('🍂 BLINDED!', 'bad'); v.shake = Math.max(v.shake, 0.3); }
-  if (e === 'leafKick') v.hud.toast('🍂 LEAF HIT!', 'good');
+  if (e === 'chainBreak') v.hud.toast('CHAIN BROKEN', 'bad');
+  if (e === 'blinded') { v.hud.toast('BLINDED', 'bad'); v.shake = Math.max(v.shake, 0.3); }
+  if (e === 'leafKick') v.hud.toast('LEAF HIT', 'good');
+  if (e === 'land' && v.racer.hz.snow < 0.3) v.hud.toast('SNOW SHAKEN OFF', 'good');
+  if (e === 'snowball') { v.hud.toast('SNOWBALL', 'bad'); v.shake = Math.max(v.shake, 0.8); }
+  if (e === 'heaterOut') v.hud.toast('HEATER BURNT OUT', 'bad');
+  if (e === 'heaterCold') v.hud.toast('HEATER IS OUT', 'bad');
   if (e === 'mud') v.fx.splashMud();
   if (e === 'branch') v.shake = 0.7;
   if (e === 'snowHit') v.shake = 0.6;
@@ -426,7 +425,7 @@ function seasonFlourish(v: View, si: number, car: Car) {
         particles.emit(x, 0.3, z, 1, [0xffe27a, 0xffb627, 0xfff4c2][k % 3], { speed: 1.5, up: 6, gravity: -1, life: 1.1, size: 0.3, ...vel });
         break;
       case 2: // autumn: a gust of leaves
-        particles.emit(x, 1 + Math.random() * 3, z, 1, [0xe0662a, 0xc8402a, 0xf0a030, 0xb8541e][k % 4], { speed: 5, up: 3, gravity: 2.5, life: 1.5, size: 0.45, ...vel });
+        leafFx.emit(x, 1 + Math.random() * 3, z, 1, { spread: 3, vy: 2.5, life: 2, size: 0.55, vx: vel.vx, vz: vel.vz });
         break;
       default: // winter: a flurry of snow from above
         particles.emit(x, 5 + Math.random() * 3, z, 1, 0xffffff, { speed: 1.5, up: -3, gravity: 3, life: 1.6, size: 0.3, ...vel });
@@ -441,7 +440,11 @@ hazards.falling.onLand = (b) => {
   const x = s.x + s.nx * b.lat, z = s.z + s.nz * b.lat;
   if (!nearCam(x, z, 120)) return;
   { const f = views[0]?.cam.position; if (f) sfx.thump(Math.max(0, 1 - Math.hypot(f.x - x, f.z - z) / 90)); }
-  particles.emit(x, 0.6, z, 18, 0xe0662a, { speed: 7, up: 5, gravity: 5, life: 1.2, size: 0.35 });
+  leafFx.emit(x, 0.8, z, 34, { spread: 4.5, vy: 6, life: 2.4, size: 0.55 });
+  for (let k = 0; k < 18; k++) { // a ring of dust puffing out along the road
+    const a = (k / 18) * Math.PI * 2;
+    particles.emit(x + Math.cos(a) * 1.5, 0.3, z + Math.sin(a) * 1.5, 1, 0xb79b7a, { speed: 0.5, up: 1, gravity: -0.6, life: 1.1, size: 0.7, vx: Math.cos(a) * 5, vz: Math.sin(a) * 5 });
+  }
   particles.emit(x, 0.4, z, 8, 0x5a3b22, { speed: 5, up: 4, size: 0.25 });
   for (const v of views) if (v.cam.position.distanceToSquared(new THREE.Vector3(x, 0, z)) < 45 * 45) v.shake = Math.max(v.shake, 0.45);
 };
@@ -461,8 +464,9 @@ function surfaceKicks(dt: number, cars: Car[]) {
     switch (car.surface) {
       case 'mud': particles.emit(bx, 0.3, bz, 2, 0x5a3a1d, { speed: 2, up: 4, ...back }); break;
       case 'puddle': particles.emit(bx, 0.3, bz, 3, 0xcfe6ff, { speed: 3, up: 5, size: 0.25, ...back }); break;
-      case 'leaves': particles.emit(bx, 0.3, bz, 2, [0xe0662a, 0xc8402a, 0xf0a030][Math.floor(Math.random() * 3)], { speed: 2, up: 4, gravity: 4, life: 1.2, ...back }); break;
+      case 'leaves': leafFx.emit(bx, 0.3, bz, 2, { spread: 1.5, vy: 4, life: 1.6, size: 0.45, vx: back.vx, vz: back.vz }); break;
       case 'snow': particles.emit(bx, 0.3, bz, 2, 0xffffff, { speed: 2, up: 4, ...back }); break;
+      case 'powder': particles.emit(bx, 0.25, bz, 2, 0xf4f8ff, { speed: 2.5, up: 3.5, size: 0.3, life: 0.7, ...back }); break;
       case 'road':
         // wet spring road: light spray off the tyres
         if (seasons.weights[0] > 0.5 && sp > 14 && Math.random() < 0.6) particles.emit(bx, 0.25, bz, 1, 0xd6e4f2, { speed: 1.5, up: 2.5, size: 0.22, life: 0.5, ...back });
@@ -495,6 +499,7 @@ function makeRace(configs: RacerConfig[], d: Difficulty) {
   }
   hud.show(false);
   lastCd = 99;
+  winterView.clearMarks();
   for (const r of race.racers) {
     const tag = textSprite(r.name.slice(0, 10), '#' + r.color.toString(16).padStart(6, '0'));
     tag.name = 'tag';
@@ -515,7 +520,8 @@ function makeRace(configs: RacerConfig[], d: Difficulty) {
     views = [fullView];
     fullView.racer = race?.local ?? null;
     setAspect(fullView);
-    menu.showResults(standings, mode === 'split' ? undefined : race?.local?.id);
+    menu.showResults(standings, mode === 'split' ? undefined : race?.local?.id, mode === 'online');
+    if (mode === 'online' && net.isHost) net.raceOver();
   };
 }
 
@@ -553,7 +559,7 @@ function startSplit(d: Difficulty) {
   beginRace();
 }
 
-/** Two devices: each simulates its own car; the host also runs the bots. */
+/** Online (up to 5 devices): each simulates its own car; the host also runs the bots that fill empty seats. */
 function startOnline(st: RaceStart) {
   difficulty = st.difficulty;
   (document.activeElement as HTMLElement | null)?.blur?.();
@@ -562,7 +568,7 @@ function startOnline(st: RaceStart) {
   const configs: RacerConfig[] = st.grid.map((g, i) => ({
     id: g.id,
     name: g.id === net.id ? g.name + ' (you)' : g.name,
-    color: PLAYER_COLORS[i % PLAYER_COLORS.length],
+    color: PLAYER_COLORS[(g.color ?? i) % PLAYER_COLORS.length],
     kind: g.id === net.id ? 'local' : g.human ? 'remote' : host ? 'bot' : 'remote',
     human: g.human,
   }));
@@ -705,16 +711,18 @@ function sendSnaps() {
   net.send(mine.map((r) => race!.snapOf(r)));
 }
 
-function frame(now: number) {
+function frame() {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.1, (now - last) / 1000);
+  // performance.now(), not the rAF timestamp: some browsers hand out stale timestamps when frames are slow
+  const now = performance.now();
+  const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
   last = now;
 
   // split-screen: P1 = WASD / pad 1, P2 = arrows / pad 2; otherwise any key drives
   const split = mode === 'split' && views.length === 2;
   {
     const wantTouch = input.isTouch && (state === 'race' || state === 'paused') && !split;
-    if (wantTouch !== touchShown) { touchShown = wantTouch; input.showTouch(wantTouch); }
+    if (wantTouch !== touchShown) { touchShown = wantTouch; input.showTouch(wantTouch); document.body.classList.toggle('in-race', wantTouch); }
   }
   const inputs = split ? [input.read(0), input.read(1)] : [input.read()];
   if (inputs[0].pause) {
@@ -753,7 +761,7 @@ function frame(now: number) {
       // ride up over snow drifts / leaf piles (smoothed so it doesn't pop)
       const gy = hazards.map.groundHeight(r.car.trackPos.t, r.car.trackPos.lateral) * 0.8;
       r.mesh.userData.gy = (r.mesh.userData.gy ?? 0) + (gy - (r.mesh.userData.gy ?? 0)) * Math.min(1, dt * 12);
-      r.mesh.position.set(p.x, r.mesh.userData.gy + (r.car.stalledUntil > race.now ? Math.sin(now * 0.05) * 0.04 : 0), p.z);
+      r.mesh.position.set(p.x, r.mesh.userData.gy + r.hz.airY + (r.car.stalledUntil > race.now ? Math.sin(now * 0.05) * 0.04 : 0), p.z);
       r.mesh.rotation.y = p.heading;
       animateCar(r, dt);
     }
@@ -814,15 +822,34 @@ function frame(now: number) {
       }
     }
     lakeView.update(dt);
+    if (race) cloudView.setHeaters(hazards.heaterFuel, hazards.heaterOutUntil.map((u) => Math.max(0, u - race!.now)));
     cloudView.update(dt);
+    winterView.update(dt, (x, z) => nearCam(x, z, 140));
+    if (race) for (const r of race.racers) {
+      if (r.hz.airY > 0 || Math.abs(r.car.speed) < 3) continue;
+      if (seasonIndexAt(r.car.trackPos.t, hazards.map.offset) !== 3 || inStartZone(r.car.trackPos.t, track.length)) continue;
+      const lm = r.mesh.userData.lastMark as [number, number] | undefined;
+      if (!lm || Math.hypot(r.car.x - lm[0], r.car.z - lm[1]) > 1.3) {
+        winterView.addMarks(r.car.x - Math.sin(r.car.heading) * 1.2, r.car.z - Math.cos(r.car.heading) * 1.2, r.car.heading);
+        r.mesh.userData.lastMark = [r.car.x, r.car.z];
+      }
+    }
+    waveView.update(dt, race && race.phase !== 'finished' ? seasons.weights[2] : 0, (x, z) => nearCam(x, z, 120));
     // leaf waves: swirling leaves where a wave is (only near the camera)
     if (race && race.phase !== 'finished') for (const w of hazards.waves.pos) {
       if (!nearCam(w.x, w.z, 90)) continue;
-      if (Math.random() > dt * 30) continue;
-      {
-        const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * w.r;
-        particles.emit(w.x + Math.cos(a) * rr, 0.6 + Math.random() * 2.6, w.z + Math.sin(a) * rr, 1,
-          [0xe0662a, 0xc8402a, 0xf0a030, 0xb8541e][Math.floor(Math.random() * 4)], { speed: 1.5, up: 1.5, gravity: 0.8, life: 1.1, size: 0.55 });
+      // a little whirlwind: leaves lifted off the road and spun round the wave's centre as it travels
+      const smp = track.samples[Math.floor(w.t * track.samples.length) % track.samples.length];
+      let n = dt * 90;
+      while (n > 0) {
+        if (n < 1 && Math.random() > n) break;
+        n -= 1;
+        // leaves sucked in off the road and carried up the funnel in a spiral
+        const a = Math.random() * Math.PI * 2, rr = (0.25 + Math.random() * 0.75) * w.r * 0.85;
+        leafFx.emit(w.x + Math.cos(a) * rr, 0.15 + Math.random() * 2.5, w.z + Math.sin(a) * rr, 1, {
+          vy: 4 + Math.random() * 2, spread: 0.5, life: 2.2, size: 0.55 + Math.random() * 0.2,
+          swirl: { cx: w.x, cz: w.z, w: 5, cvx: smp.tx * WAVE_SPEED, cvz: smp.tz * WAVE_SPEED },
+        });
       }
     }
 
@@ -833,8 +860,8 @@ function frame(now: number) {
       const n = Math.random() < dt * 70 ? 2 : 0;
       for (let k = 0; k < n; k++) {
         const bx = r.car.x - Math.sin(r.car.heading) * 2, bz = r.car.z - Math.cos(r.car.heading) * 2;
-        particles.emit(bx + (Math.random() - 0.5) * 2, 0.5, bz + (Math.random() - 0.5) * 2, 1, [0xe0702a, 0xc8402a, 0xf0a030, 0x9a5a20][Math.floor(Math.random() * 4)],
-          { speed: 3, up: 7 + Math.random() * 4, gravity: 5, life: 1.3, size: 0.42, vx: -Math.sin(r.car.heading) * 9 + r.car.vx * 0.3, vz: -Math.cos(r.car.heading) * 9 + r.car.vz * 0.3 });
+        leafFx.emit(bx + (Math.random() - 0.5) * 2, 0.5, bz + (Math.random() - 0.5) * 2, 1,
+          { spread: 2.5, vy: 7 + Math.random() * 4, life: 2, size: 0.55, vx: -Math.sin(r.car.heading) * 10 + r.car.vx * 0.3, vz: -Math.cos(r.car.heading) * 10 + r.car.vz * 0.3 });
       }
     }
     // Snow piles on cars; steam when a heater melts it
@@ -929,7 +956,7 @@ function frame(now: number) {
       const c = me.car;
       const si = inStartZone(c.trackPos.t, track.length) ? 4 : seasonIndexAt(c.trackPos.t, hazards.map.offset);
       if (me.finished) hud.popFinish(me.place);
-      else hud.popSeason(si);
+      else if (!(si === 4 && me.completed >= 0)) hud.popSeason(si); // the neutral zone before the finish line: no "START" banner on the run-in
       if (!me.finished && v.lastSi !== si) {
         if (v.lastSi !== undefined && si < 4 && state === 'race' && race.now > race.startAt) seasonFlourish(v, si, c);
         v.lastSi = si;
@@ -987,7 +1014,8 @@ function frame(now: number) {
         boosting: c.boostUntil > race.now,
         crack: me.hz.onLake ? me.hz.crack : 0,
         snow: si === 3 || me.hz.snow > 0.03 ? me.hz.snow : -1,
-        pad: me.hz.warming ? 2 : me.hz.onHeater && me.hz.snow > 0.05 ? 1 : 0,
+        pad: 0,
+        heaters: HEATER_FUEL.on && si === 3 ? hazards.heaterOutUntil.map((u, i) => (u > race!.now ? `<b class="out">${Math.ceil(u - race!.now)}</b>` : `<b>${Math.round(hazards.heaterFuel[i] * 100)}%</b>`)).join('') : '',
         shaded: si === 1 && me.hz.inShade,
         gustWarn: inAutumn ? g.warning : 0,
         sail: SAIL_ON && inAutumn ? me.hz.sail : -1,
@@ -1034,6 +1062,7 @@ function frame(now: number) {
     sfx.ambience(lastSeasonSfx < 0 ? 4 : lastSeasonSfx, playing);
   }
   particles.update(dt);
+  leafFx.update(dt);
   hazardView.update(dt);
   // Render every view (split-screen: left and right halves of one canvas).
   const W = window.innerWidth, H = window.innerHeight;
@@ -1045,6 +1074,15 @@ function frame(now: number) {
     if (race) {
       const fr = v.racer ?? [...race.racers].sort((x, y) => x.place - y.place)[0];
       seasons.update(i === 0 ? dt : 0, fr.car.trackPos.t, v.cam.position);
+      {
+        const inWinter = !inStartZone(fr.car.trackPos.t, track.length) && seasonIndexAt(fr.car.trackPos.t, hazards.map.offset) === 3;
+        const wk = inWinter && race.phase !== 'finished' ? blizzardAt(race.now) * seasons.weights[3] : 0;
+        const fog = scene.fog as THREE.Fog;
+        fog.near *= 1 - 0.85 * wk;
+        fog.far *= 1 - 0.7 * wk;
+        v.fx.setWhiteout(prefs.reduceFlashes ? wk * 0.5 : wk);
+        if (i === 0) { if (wk > 0.05 && !blizzardOn) { blizzardOn = true; sfx.blizzard(); } else if (wk < 0.02) blizzardOn = false; }
+      }
       v.fx.setRain(state === 'race' ? seasons.weights[0] : 0);
       petalView.update(i === 0 ? dt : 0, v.racer ? v.racer.hz.petalGot : []);
       sun.position.set(fr.car.x + 30, 60, fr.car.z + 20);
@@ -1099,12 +1137,18 @@ function frame(now: number) {
 
 applyPrefs(settings.prefs);
 toMenu();
-// First launch: show how to play before the menu.
-if (!HowToPlay.seen()) { menu.hideAll(); howTo.open(); }
+// Opened from a lobby QR code (?join=CODE): straight to the join form. Otherwise, on first launch,
+// show how to play before the menu.
+const joinCode = new URLSearchParams(location.search).get('join');
+if (joinCode && /^[a-z]{4}$/i.test(joinCode)) menu.showOnline(joinCode);
+else if (!HowToPlay.seen()) { menu.hideAll(); howTo.open(); }
 requestAnimationFrame(frame);
 
 // Expose for console debugging / automated tests.
 (window as unknown as { __fsr: unknown }).__fsr = {
+  waveView,
+  leafFx,
+  seasons,
   sfx,
   get race() { return race; },
   get state() { return state; },

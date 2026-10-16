@@ -1,3 +1,4 @@
+import { icon } from '../ui/icons';
 // Keyboard + gamepad. Remapping UI comes in Phase 3; bindings are data already.
 
 export type Action = 'accel' | 'brake' | 'left' | 'right' | 'item' | 'respawn' | 'pause';
@@ -56,9 +57,9 @@ export class Input {
     const el = document.createElement('div');
     el.className = 'touch-ui hidden';
     el.innerHTML = `
-      <div class="tc-left"><button data-k="left">◀</button><button data-k="right">▶</button></div>
+      <div class="tc-left"><button data-k="left">${icon('left')}</button><button data-k="right">${icon('right')}</button></div>
       <div class="tc-right"><button data-k="brake" class="tc-brake">BRAKE</button><button data-k="gas" class="tc-gas">GAS</button></div>
-      <button class="tc-pause" data-k="pause">⏸</button>`;
+      <button class="tc-pause" data-k="pause">II</button>`;
     document.body.appendChild(el);
     el.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
       const k = b.dataset.k as keyof typeof this.touch | 'pause';

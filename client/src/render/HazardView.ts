@@ -1,7 +1,7 @@
 // Visible geometry for every hazard. Rule: every hazard is visible before it hits.
 
 import * as THREE from 'three';
-import { blobShape, MOUND, type HazardMap, type PlacedHazard } from '@shared/hazards';
+import { blobShape, moundHeight, MOUND, type HazardMap, type PlacedHazard } from '@shared/hazards';
 import type { TrackData } from '@shared/track';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ribbon } from '../game/Track';
@@ -30,6 +30,8 @@ export class HazardView {
   private ripples!: THREE.InstancedMesh;
   private rippleState: { x: number; z: number; age: number; life: number }[] = [];
   private m4 = new THREE.Matrix4();
+
+  private leafSpots: { x: number; y: number; z: number; yaw: number; tilt: number; s: number; c: number }[] = [];
 
   constructor(private track: TrackData, map: HazardMap, private colorBlind = false) {
     this.build(map);
@@ -243,11 +245,18 @@ export class HazardView {
           const seed = h.blob ?? h.id;
           const rnd = mulberry(seed * 7 + 1);
           const leafColor = (_r: number, rr: () => number, out: THREE.Color) => out.set(leafColors[Math.floor(rr() * leafColors.length)]);
-          add(this.moundGeo(h, MOUND.leaves!.height, { bump: 0.45, rings: 7, segs: 44, color: leafColor }), leafPile);
-          for (let k = 0; k < 10; k++) {
+          // a darker, smoother base mound (the leaves underneath)...
+          const baseColor = (_r: number, rr: () => number, out: THREE.Color) => out.set(leafColors[Math.floor(rr() * leafColors.length)]).multiplyScalar(0.6);
+          add(this.moundGeo(h, MOUND.leaves!.height * 0.92, { bump: 0.2, rings: 6, segs: 36, color: baseColor }), leafPile);
+          // ...covered in hundreds of individual flat leaves lying at random angles, spilling past the edge
+          for (let k = 0; k < 170; k++) {
             const a = rnd() * Math.PI * 2;
-            const r = blobShape('leaves', seed, a) * (1.0 + rnd() * 0.3);
-            add(this.moundGeo(h, 0.3 + rnd() * 0.25, { seed: seed + k + 40, scale: 0.07 + rnd() * 0.08, cu: Math.cos(a) * r, cv: Math.sin(a) * r, rings: 2, segs: 9, bump: 0.6, color: leafColor }), leafPile);
+            const edge = blobShape('leaves', seed, a);
+            const r = Math.sqrt(rnd()) * edge * 1.18;
+            const u = Math.cos(a) * r, v = Math.sin(a) * r;
+            const y = moundHeight('leaves', seed, u, v) + 0.04;
+            const p = this.blobPoint(h, u, v, new THREE.Vector3(), y);
+            this.leafSpots.push({ x: p.x, y: p.y, z: p.z, yaw: rnd() * Math.PI * 2, tilt: (rnd() - 0.5) * 0.7, s: 0.45 + rnd() * 0.35, c: leafColors[Math.floor(rnd() * leafColors.length)] });
           }
           break;
         }
@@ -343,6 +352,29 @@ export class HazardView {
       mesh.receiveShadow = true;
       mesh.castShadow = m === bark;
       this.group.add(mesh);
+    }
+
+    // Loose leaves on the leaf piles: one instanced mesh of flat leaf shapes.
+    if (this.leafSpots.length) {
+      const shape = new THREE.Shape();
+      shape.moveTo(0, -0.55);
+      shape.quadraticCurveTo(0.42, -0.2, 0.3, 0.2);
+      shape.quadraticCurveTo(0.18, 0.5, 0, 0.62);
+      shape.quadraticCurveTo(-0.18, 0.5, -0.3, 0.2);
+      shape.quadraticCurveTo(-0.42, -0.2, 0, -0.55);
+      const leafGeo = new THREE.ShapeGeometry(shape, 2).rotateX(-Math.PI / 2);
+      const leafMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+      this.disposables.push(leafGeo, leafMat);
+      const inst = new THREE.InstancedMesh(leafGeo, leafMat, this.leafSpots.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), pv = new THREE.Vector3(), col = new THREE.Color();
+      this.leafSpots.forEach((l, i) => {
+        q.setFromEuler(e.set(l.tilt, l.yaw, l.tilt * 0.6));
+        m4.compose(pv.set(l.x, l.y, l.z), q, sc.set(l.s, l.s, l.s));
+        inst.setMatrixAt(i, m4);
+        inst.setColorAt(i, col.set(l.c));
+      });
+      inst.receiveShadow = true;
+      this.group.add(inst);
     }
 
     // Rain ripples on the puddles (instanced rings that grow and fade).

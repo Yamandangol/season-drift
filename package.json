@@ -11,6 +11,7 @@
     "dev": "concurrently -k -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
+    "share": "npm run build && npm run share -w server",
     "typecheck": "tsc -p client --noEmit && tsc -p server --noEmit"
   },
   "devDependencies": {

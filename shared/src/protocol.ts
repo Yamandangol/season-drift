@@ -1,4 +1,4 @@
-// Network message types (Socket.IO). Two devices, one room: each device simulates its own car
+// Network message types (Socket.IO). Up to 5 devices in one room: each device simulates its own car
 // (the host also simulates the bots) and streams snapshots; the server just relays.
 
 export const DEFAULT_PORT = 3000;
@@ -38,8 +38,8 @@ export interface LobbyPlayer {
 }
 
 export interface RaceStart {
-  /** ordered grid: the room's humans then bots */
-  grid: { id: string; name: string; human: boolean }[];
+  /** start grid, front to back (humans and bots mixed). color: index into the car colours, stable per lobby seat */
+  grid: { id: string; name: string; human: boolean; color: number }[];
   hostId: string;
   difficulty: 'easy' | 'normal' | 'hard';
   /** ms from now until both devices create the race */
@@ -61,5 +61,7 @@ export interface ClientToServer {
   'room:join': (code: string, name: string) => void;
   'room:leave': () => void;
   'race:request': (difficulty: 'easy' | 'normal' | 'hard') => void;
+  /** host: the race is over, the room can take new players again */
+  'race:over': () => void;
   'race:state': (snaps: CarSnap[]) => void;
 }

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FALL, type FallingBranches } from '@shared/fallingBranches';
 import type { TrackData } from '@shared/track';
+import type { LeafFx } from './LeafFx';
 
 const DROP_HEIGHT = 15;
 
@@ -42,7 +43,9 @@ export class FallingBranchView {
   private slots: Slot[] = [];
   private disposables: { dispose(): void }[] = [];
 
-  constructor(private track: TrackData, private falling: FallingBranches) {
+  private lastNow = 0;
+
+  constructor(private track: TrackData, private falling: FallingBranches, private leafFx?: LeafFx) {
     const { bark, leaves } = buildBranchGeos();
     const barkMat = new THREE.MeshLambertMaterial({ color: 0x5a3b22, flatShading: true });
     const leafMat = new THREE.MeshLambertMaterial({ color: 0xe0662a, flatShading: true });
@@ -66,6 +69,8 @@ export class FallingBranchView {
   }
 
   update(now: number) {
+    const frameDt = Math.max(0, Math.min(0.1, now - this.lastNow));
+    this.lastNow = now;
     const s = this.track.samples;
     const n = s.length;
     this.falling.branches.forEach((br, i) => {
@@ -78,11 +83,24 @@ export class FallingBranchView {
       const x = p.x + p.nx * br.lat, z = p.z + p.nz * br.lat;
       // log lies across the road: its long axis (local X) along the track normal
       const yaw = Math.atan2(p.tx, p.tz) + br.spin;
+      const dt = frameDt;
       if (br.phase === 'falling') {
         const k = Math.min(1, Math.max(0, (now - br.startAt) / (br.landAt - br.startAt)));
-        const y = 0.5 + DROP_HEIGHT * (1 - k * k); // accelerates like gravity
-        slot.group.position.set(x, y, z);
-        slot.group.rotation.set((1 - k) * 1.2, yaw + (1 - k) * 1.5, (1 - k) * 0.6);
+        const SNAP = 0.22; // first part: it creaks and shakes up in the canopy
+        const top = DROP_HEIGHT + 1.5;
+        if (k < SNAP) {
+          const sh = Math.sin(now * 55) * 0.07 * (k / SNAP);
+          slot.group.position.set(x, top, z);
+          slot.group.rotation.set(0.25 + sh, yaw + 0.6, 0.15 - sh);
+          if (this.leafFx && Math.random() < dt * 25) this.leafFx.emit(x + (Math.random() - 0.5) * 4, top, z + (Math.random() - 0.5) * 2, 1, { spread: 0.8, vy: 0, life: 2.6, size: 0.5 });
+        } else {
+          const kk = (k - SNAP) / (1 - SNAP);
+          const y = 0.5 + (top - 0.5) * (1 - kk * kk); // accelerates like gravity
+          slot.group.position.set(x, y, z);
+          // tumbles end over end, settling flat just before impact
+          slot.group.rotation.set((1 - kk) * 2.6 + 0.25 * (1 - kk), yaw + (1 - kk) * 0.6, Math.sin(kk * Math.PI) * 0.7);
+          if (this.leafFx && Math.random() < dt * 40) this.leafFx.emit(x + (Math.random() - 0.5) * 3, y + 0.5, z + (Math.random() - 0.5) * 3, 1, { spread: 1.2, vy: 2, life: 2.2, size: 0.5 });
+        }
         // warning shadow: grows and darkens as it gets close
         slot.shadow.position.set(x, 0.07, z);
         slot.shadow.rotation.y = yaw;
@@ -92,8 +110,12 @@ export class FallingBranchView {
         // down: lie still, sink away in the last second before it's cleared
         const left = br.clearAt - now;
         const sink = left < 1 ? (1 - Math.max(0, left)) * 1.2 : 0;
-        slot.group.position.set(x, 0.5 - sink, z);
-        slot.group.rotation.set(0, yaw, 0);
+        // impact: a couple of bounces and a rock side to side before it settles
+        const td = now - br.landAt;
+        const bounce = td < 1 ? Math.abs(Math.sin(td * 8)) * 0.9 * Math.exp(-td * 5) : 0;
+        const rock = td < 1.2 ? Math.sin(td * 14) * 0.22 * Math.exp(-td * 4) : 0;
+        slot.group.position.set(x, 0.5 + bounce - sink, z);
+        slot.group.rotation.set(rock * 0.4, yaw, rock);
       }
     });
   }

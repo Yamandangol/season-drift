@@ -16,10 +16,10 @@ export interface WaveDef {
 const LANES = [5.5, -5.5, 0, -5.5]; // a few gusts, well spaced
 export const WAVES: WaveDef[] = LANES.map((lat, i) => ({
   s0: (i + 0.5) / LANES.length,
-  speed: 9,
+  speed: 15, // faster down the road...
   lat,
-  sway: 1.5,
-  swayHz: 0.1 + (i % 3) * 0.03,
+  sway: 3.8, // ...and weaving hard across the lanes, so you have to read it and time your move
+  swayHz: 0.24 + (i % 3) * 0.05,
   r: 4.2,
 }));
 

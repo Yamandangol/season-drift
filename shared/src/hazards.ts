@@ -175,7 +175,7 @@ export class HazardMap {
     const branchHalf = TRACK.roadWidth > 0 ? HAZARD_BRANCH_HALF_T(this.trackLength) : 0;
     this.placed = HAZARDS.map((h, id) => {
       // the track was scaled up: keep each patch about its original length in world units
-      if (h.type !== 'branch') {
+      if (h.type !== 'branch' && h.type !== 'ice') { // black ice keeps its full length: it's meant to be a long slide
         const mid = (h.s0 + h.s1) / 2, half = (h.s1 - h.s0) / 2 / TRACK_SCALE;
         h = { ...h, s0: mid - half, s1: mid + half };
       }

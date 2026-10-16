@@ -1,4 +1,4 @@
-// Thin Socket.IO wrapper for online 2-player races (two devices, one room).
+// Thin Socket.IO wrapper for online races (up to 5 devices in one room).
 
 import { io, type Socket } from 'socket.io-client';
 import type { CarSnap, ClientToServer, LobbyPlayer, RaceStart, ServerToClient } from '@shared/protocol';
@@ -61,6 +61,11 @@ export class Net {
 
   requestStart(difficulty: 'easy' | 'normal' | 'hard') {
     this.socket?.emit('race:request', difficulty);
+  }
+
+  /** host: results are up, so the room opens for new players again */
+  raceOver() {
+    this.socket?.emit('race:over');
   }
 
   send(snaps: CarSnap[]) {

@@ -3,7 +3,6 @@ import { SUN } from '@shared/clouds';
 
 import { CAR, HEAT, TRACK } from '@shared/constants';
 import type { Standing } from '../game/Race';
-import { PALETTES } from '../render/palette';
 
 const ORD = ['th', 'st', 'nd', 'rd'];
 export function ordinal(n: number) {
@@ -47,6 +46,7 @@ export class HUD {
   private snowBox!: HTMLElement;
   private snowBar!: HTMLElement;
   private snowPct!: HTMLElement;
+  private heaterRow!: HTMLElement;
   private sailBar!: HTMLElement;
   private boostKey!: HTMLElement;
   private season: HTMLElement;
@@ -66,7 +66,7 @@ export class HUD {
     this.root = el('div', 'hud hidden', parent);
     // Season strip: the race as four coloured seasons, with every car as a dot
     this.strip = el('div', 'hud-strip', this.root);
-    this.strip.innerHTML = `<div class="st-track">${['🌱', '☀️', '🍂', '❄️'].map((ic, i) => `<div class="st-seg s${i}"><span>${ic}</span></div>`).join('')}</div><div class="st-flag">🏁</div><div class="st-dots"></div>`;
+    this.strip.innerHTML = `<div class="st-track">${[0, 1, 2, 3].map((i) => `<div class="st-seg s${i}"></div>`).join('')}</div><div class="st-flag"></div><div class="st-dots"></div>`;
     this.stripDots = this.strip.querySelector('.st-dots')!;
     const tl = el('div', 'hud-box hud-tl', this.root);
     this.pos = el('div', 'hud-pos', tl);
@@ -98,7 +98,7 @@ export class HUD {
     // a glass thermometer: bulb + tube with ticks, mercury coloured by temperature, °C readout
     this.heat.insertAdjacentHTML('beforeend', `
       <div class="hud-thermo">
-        <div class="th-bulb"><i></i><span class="th-flame">🔥</span></div>
+        <div class="th-bulb"><i></i></div>
         <div class="th-tube"><i class="th-merc"></i><div class="th-ticks">${'<b></b>'.repeat(9)}</div><div class="th-red"></div></div>
       </div>
       <div class="th-read"><span>20</span><small>°C</small></div>`);
@@ -108,25 +108,29 @@ export class HUD {
     this.heatHint = el('div', 'heat-hint', this.heat, '');
 
     this.sailBox = el('div', 'hud-box hud-sail', this.root);
-    el('div', 'icon', this.sailBox, '⛵');
+    el('div', 'lbl', this.sailBox, 'SAIL');
     this.sailBar = el('i', '', el('div', 'bar', this.sailBox));
     this.chainBox = el('div', 'hud-box hud-chain', this.root);
-    el('div', 'icon', this.chainBox, '🌸');
+    el('div', 'lbl c-s0', this.chainBox, 'PETALS');
     this.chainNum = el('div', 'chain-num', this.chainBox, 'x0');
     this.chainPct = el('div', 'chain-pct', this.chainBox, '');
     this.toastEl = el('div', 'hud-toast', this.root);
     this.snowBox = el('div', 'hud-box hud-snow', this.root);
-    el('div', 'icon', this.snowBox, '❄️');
+    el('div', 'lbl c-s3', this.snowBox, 'SNOW');
     this.snowBar = el('i', '', el('div', 'bar', this.snowBox));
     this.snowPct = el('div', 'snow-pct', this.snowBox, '');
+    this.heaterRow = el('div', 'heater-row', this.snowBox, '');
     this.season = el('div', 'hud-season', this.root);
     this.count = el('div', 'hud-count hidden', this.root);
     this.gust = el('div', 'hud-gust', this.root);
-    el('span', 'wind', this.gust, '🌬️');
-    this.gustArrow = el('span', 'arrow', this.gust, '➜');
+    el('span', 'wind', this.gust, 'WIND');
+    this.gustArrow = el('span', 'arrow', this.gust);
+    this.gustArrow.textContent = '';
     this.grace = el('div', 'hud-box hud-grace hidden', this.root);
-    this.stall = el('div', 'hud-stall hidden', this.root, '💨🔥');
-    this.aqua = el('div', 'hud-aqua hidden', this.root, '🌊');
+    this.stall = el('div', 'hud-stall hidden', this.root);
+    this.stall.textContent = '';
+    this.aqua = el('div', 'hud-aqua hidden', this.root);
+    this.aqua.textContent = '';
     this.crackEl = el('div', 'hud-crack', this.root);
 
     // Key prompts — icons only, first seconds of a race.
@@ -209,8 +213,8 @@ export class HUD {
     this.lastSeason = idx;
     this.season.classList.remove('stay');
     const NAMES = ['SPRING', 'SUMMER', 'AUTUMN', 'WINTER', 'START'];
-    const TIPS = ['🌸 chain the petals', '☁️ brake in a cloud to cool', '🍂 kick leaves back', '🔥 stop on heaters', ''];
-    this.season.innerHTML = `<span class="s-icon">${PALETTES[idx].icon}</span><span class="s-name s${idx}">${NAMES[idx]}</span><span class="s-tip">${TIPS[idx]}</span>`;
+    const TIPS = ['chain the petals', 'brake in a cloud to cool', 'kick leaves back', 'jump the ramps', ''];
+    this.season.innerHTML = `<span class="s-name s${idx}">${NAMES[idx]}</span><span class="s-tip">${TIPS[idx]}</span>`;
     this.season.classList.remove('pop');
     void this.season.offsetWidth; // restart animation
     this.season.classList.add('pop');
@@ -220,16 +224,16 @@ export class HUD {
   popFinish(place: number) {
     if (this.lastSeason === 99) return;
     this.lastSeason = 99;
-    const icon = place === 1 ? '🏆' : place === 2 ? '🥈' : place === 3 ? '🥉' : '🏁';
-    this.season.innerHTML = `<span class="s-icon">${icon}</span><span class="s-name fin">FINISH</span><span class="s-tip">${ordinal(place)} place${place === 1 ? ' · you won the year!' : ''}</span>`;
+    
+    this.season.innerHTML = `<span class="s-name fin">FINISH</span><span class="s-tip">${ordinal(place)} place${place === 1 ? ' · you won the year!' : ''}</span>`;
     this.season.classList.remove('pop', 'stay');
     void this.season.offsetWidth;
     this.season.classList.add('pop', 'stay');
   }
 
-  /** short centre-screen message (e.g. "🍂 BLINDED!") */
+  /** short centre-screen message (HTML allowed, e.g. an icon + "BLINDED") */
   toast(text: string, cls = '') {
-    this.toastEl.textContent = text;
+    this.toastEl.innerHTML = text;
     this.toastEl.className = 'hud-toast show ' + cls;
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 900);
@@ -245,6 +249,8 @@ export class HUD {
     total: number;
     lap: number;
     lapTime: number;
+    /** winter: the three heaters' state (HTML) */
+    heaters?: string;
     /** 0..1 of the race distance */
     progress?: number;
     speed: number;
@@ -275,8 +281,8 @@ export class HUD {
     }
     this.pos.innerHTML = `${ordinal(o.place).replace(/(\d+)(\D+)/, '$1<small>$2</small>')}<small>/${o.total}</small>`;
     this.lap.innerHTML = TRACK.laps === 1
-      ? `<span class="flag">🏁</span>${Math.round(Math.max(0, Math.min(1, o.progress ?? 0)) * 100)}%`
-      : `<span class="flag">🏁</span>${Math.max(1, Math.min(TRACK.laps, o.lap))}/${TRACK.laps}`;
+      ? `${Math.round(Math.max(0, Math.min(1, o.progress ?? 0)) * 100)}%`
+      : `LAP ${Math.max(1, Math.min(TRACK.laps, o.lap))}/${TRACK.laps}`;
     this.time.textContent = fmtTime(Math.max(0, o.lapTime));
     const sp = Math.abs(o.speed);
     this.speedNum.textContent = String(Math.round(sp * 3.6)); // "km/h"-ish
@@ -302,7 +308,7 @@ export class HUD {
       const tc = o.stalled ? 'hsl(8 95% 52%)' : cb ? (h < 50 ? `hsl(${215 - h * 0.4} 85% ${55 + h * 0.2}%)` : `hsl(30 100% ${55 + Math.max(0, h - 75) * 1.6}%)`) : `hsl(${Math.max(0, hue)} 90% ${h < 50 ? 60 : 55}%)`;
       this.heat.style.setProperty('--tc', tc);
       this.heat.style.setProperty('--th', String(h / 100));
-      this.heatRead.textContent = o.stalled ? '🔥' : String(Math.round(20 + h));
+      this.heatRead.innerHTML = o.stalled ? 'HOT' : String(Math.round(20 + h));
     }
     this.heat.classList.toggle('warn', o.heat >= HEAT.warn && !o.stalled);
     this.heat.classList.toggle('stalled', o.stalled);
@@ -317,15 +323,20 @@ export class HUD {
     this.snowBox.style.opacity = o.snow >= 0 ? '1' : '0';
     if (o.snow >= 0) {
       this.snowBar.style.width = `${o.snow * 100}%`;
-      this.snowPct.textContent = o.pad === 2 ? '🔥 HOLD STILL' : o.pad === 1 ? '🔥 STOP HERE!' : o.snow > 0.02 ? `-${Math.round(o.snow * 65)}% 🐢` : '';
+      const sp = o.pad === 2 ? 'HOLD STILL' : o.pad === 1 ? 'STOP HERE' : o.snow > 0.02 ? `-${Math.round(o.snow * 65)}% speed` : '';
+      if (this.snowPct.innerHTML !== sp) this.snowPct.innerHTML = sp;
+      const hr = o.heaters ?? '';
+      if (this.heaterRow.innerHTML !== hr) this.heaterRow.innerHTML = hr;
     }
     this.snowBox.classList.toggle('heavy', o.snow > 0.6);
     this.heat.classList.toggle('shaded', o.shaded);
     // summer coaching: shade only cools you while you're slow
-    const hint = o.stalled ? '🔥 BURNT OUT' : o.shaded && o.heat > 3 ? (Math.abs(o.speed) < SUN.coolSpeed ? '❄️ cooling' : '🛑 brake to cool') : o.heat >= HEAT.warn ? '☁️ find a cloud!' : '';
-    if (this.heatHint.textContent !== hint) {
-      this.heatHint.textContent = hint;
-      this.heatHint.className = 'heat-hint' + (hint ? ' on' : '') + (hint.includes('brake') ? ' brake' : hint.includes('cooling') ? ' cool' : '');
+    const kind = o.stalled ? 'burn' : o.shaded && o.heat > 3 ? (Math.abs(o.speed) < SUN.coolSpeed ? 'cool' : 'brake') : o.heat >= HEAT.warn ? 'find' : '';
+    const hint = { burn: 'BURNT OUT', cool: 'cooling', brake: 'brake to cool', find: 'find a cloud!', '': '' }[kind];
+    if (this.heatHint.dataset.k !== kind) {
+      this.heatHint.dataset.k = kind;
+      this.heatHint.innerHTML = hint;
+      this.heatHint.className = 'heat-hint' + (kind ? ' on' : '') + (kind === 'brake' ? ' brake' : kind === 'cool' ? ' cool' : '');
     }
     if (o.sail >= 0) {
       const f = Math.min(1, o.sail / 1.1);
@@ -337,7 +348,8 @@ export class HUD {
       const c = o.chain ?? 0;
       this.chainBox.style.opacity = o.showChain || c > 0 ? '1' : '0';
       this.chainNum.textContent = `x${c}`;
-      this.chainPct.textContent = c > 0 ? `+${Math.round(Math.min(c, 12) * 2.5)}% ⚡${o.showHeat ? ' · 🔥 runs hot' : ''}` : '';
+      const cp = c > 0 ? `+${Math.round(Math.min(c, 12) * 2.5)}% speed${o.showHeat ? ' · runs hot' : ''}` : '';
+      if (this.chainPct.innerHTML !== cp) this.chainPct.innerHTML = cp;
       this.chainBox.classList.toggle('carry', !!o.showHeat);
       if (c > this.lastChain) { this.chainBox.classList.remove('pop'); void this.chainBox.offsetWidth; this.chainBox.classList.add('pop'); }
       this.chainBox.classList.toggle('broken', c === 0 && this.lastChain > 1);
@@ -347,7 +359,7 @@ export class HUD {
     this.gustArrow.style.transform = `rotate(${o.gustAngle}rad)`;
 
     this.grace.classList.toggle('hidden', o.grace < 0);
-    if (o.grace >= 0) this.grace.textContent = `⏱ ${Math.ceil(o.grace)}`;
+    if (o.grace >= 0) this.grace.textContent = `${Math.ceil(o.grace)}s left`;
   }
 }
 
@@ -357,12 +369,12 @@ export function resultsHtml(standings: Standing[], meId?: string) {
     .map((s) => {
       const color = '#' + s.color.toString(16).padStart(6, '0');
       const best = s.lapTimes.length ? Math.min(...s.lapTimes) : 0;
-      const medal = ['🥇', '🥈', '🥉'][s.place - 1] ?? ordinal(s.place);
+      const medal = s.place <= 3 ? `<span class="medal m${s.place}">${s.place}</span>` : ordinal(s.place);
       return `<tr class="${s.id === meId ? 'me' : ''}" style="animation-delay:${0.15 + s.place * 0.12}s">
         <td class="place">${medal}</td>
         <td><span class="swatch" style="background:${color}"></span>${s.name}</td>
-        <td class="t">${s.finished ? fmtTime(s.totalTime) : '—'}</td>
-        <td class="t" title="best lap">${best ? '⚡ ' + fmtTime(best) : ''}</td>
+        <td class="t">${s.finished ? fmtTime(s.totalTime) : s.left ? 'left' : 'DNF'}</td>
+        <td class="t" title="best lap">${best ? 'best ' + fmtTime(best) : ''}</td>
       </tr>`;
     })
     .join('');

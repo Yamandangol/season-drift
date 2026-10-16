@@ -8,12 +8,13 @@ import { queryTrack, seasonAt, trackPoint, type TrackData } from '@shared/track'
 import { LAKE, lakeEdgePush, onLake } from '@shared/lake';
 import { Clouds, SUN } from '@shared/clouds';
 import { LeafWaves, WAVE } from '@shared/leafwaves';
-import { onHeater, SNOWLOAD } from '@shared/winter';
+import { heaterAt, HEATER_FUEL, HEATERS, onRut, RAMP, RUTS, SNOW_ICE_GRIP, SNOWLOAD } from '@shared/winter';
+import { SNOWBALL, Snowballs, type BallProbe } from '@shared/snowballs';
 import { PETAL, PETALS, petalBonus, petalT } from '@shared/petals';
 import type { InputState } from '../input/Input';
 import type { Car } from './Car';
 
-export type HazardEvent = 'petal' | 'chainBreak' | 'leafKick' | 'blinded' | 'heater' | 'boost' | 'lake' | 'crack' | 'iceBreak' | 'mud' | 'splash' | 'hydroplane' | 'branch' | 'snowHit' | 'heatWarn' | 'stall' | 'ice' | 'snow' | 'leaves' | 'leafWave';
+export type HazardEvent = 'petal' | 'chainBreak' | 'leafKick' | 'blinded' | 'heater' | 'boost' | 'lake' | 'crack' | 'iceBreak' | 'mud' | 'splash' | 'hydroplane' | 'branch' | 'snowHit' | 'heatWarn' | 'stall' | 'ice' | 'snow' | 'leaves' | 'leafWave' | 'heaterOut' | 'heaterCold' | 'jump' | 'land' | 'snowball' | 'powder';
 
 export interface Gust {
   /** the wind direction this gust brings (relative to the road, degrees) */
@@ -31,6 +32,15 @@ export interface HazardCarState {
   hydroplaning: boolean;
   /** which way the current aquaplane slide pushes (+1/-1) */
   slideSide: number;
+  /** black ice: which way the back end is stepping out (0 = not on ice) */
+  iceSide: number;
+  /** standing on a heater that has burnt out */
+  heaterOut: boolean;
+  /** winter ramp jump: seconds of airtime left, total airtime, height above the road (visual) */
+  air: number;
+  airT: number;
+  airY: number;
+  rampCd: number;
   inShade: boolean;
   /** autumn: current sail efficiency 0..~1.1 (for HUD / bots) */
   sail: number;
@@ -55,7 +65,7 @@ export interface HazardCarState {
 }
 
 export function newHazardState(): HazardCarState {
-  return { heat: 0, heatWarned: false, hydroplaning: false, slideSide: 1, inShade: false, sail: 0, crack: 0, onLake: false, snow: 0, onHeater: false, warming: false, chain: 0, petalGot: [], chainFade: 0, lastT: -1, blind: 0, wave: 0, lastSurface: 'road' };
+  return { heat: 0, heatWarned: false, hydroplaning: false, slideSide: 1, iceSide: 0, heaterOut: false, air: 0, airT: 0, airY: 0, rampCd: 0, inShade: false, sail: 0, crack: 0, onLake: false, snow: 0, onHeater: false, warming: false, chain: 0, petalGot: [], chainFade: 0, lastT: -1, blind: 0, wave: 0, lastSurface: 'road' };
 }
 
 /** Autumn sailing was replaced by the leaf-kick; flip to bring it back. */
@@ -63,9 +73,16 @@ export const SAIL_ON = false;
 /** Autumn wind gusts (sideways shoves + arrow) — removed; flip to bring them back. */
 export const GUSTS_ON = false;
 
+const TRACK_BIN = 0.5;
+const TRACK_HALF = 12;
+const TRACK_BINS = Math.round((TRACK_HALF * 2) / TRACK_BIN) + 1;
+
 export class Hazards {
   map: HazardMap;
   falling: FallingBranches;
+  snowballs: Snowballs;
+  /** winter tyre tracks: when each (track sample, lateral bin) was last driven over */
+  private tracksAt: Float32Array;
   clouds: Clouds;
   waves: LeafWaves;
   gust: Gust | null = null;
@@ -79,13 +96,27 @@ export class Hazards {
   constructor(private track: TrackData, offset = 0) {
     this.map = new HazardMap(track.length, offset);
     this.falling = new FallingBranches(track, offset);
+    this.snowballs = new Snowballs(track, offset);
+    this.tracksAt = new Float32Array(track.samples.length * TRACK_BINS).fill(-1e9);
     this.clouds = new Clouds(track, offset);
     this.waves = new LeafWaves(track, offset);
   }
 
+  /** per heater: fuel left (0..1) and when a burnt-out pad relights */
+  heaterFuel: number[] = HEATERS.map(() => 1);
+  heaterOutUntil: number[] = HEATERS.map(() => 0);
+  private lastNow = 0;
+  heaterLit(i: number): boolean {
+    return this.lastNow >= this.heaterOutUntil[i];
+  }
+
   reset(now: number) {
+    this.heaterFuel = HEATERS.map(() => 1);
+    this.heaterOutUntil = HEATERS.map(() => 0);
     this.gust = null;
     this.falling.reset();
+    this.snowballs.reset();
+    this.tracksAt.fill(-1e9);
     this.windIdx = Math.floor(Math.random() * SAIL.windRel.length);
     this.windRel = SAIL.windRel[this.windIdx];
     this.nextGustAt = now + GUST.minGap;
@@ -167,7 +198,25 @@ export class Hazards {
     // Frozen lake (off the road, inside the winter corner)
     st.onLake = Math.abs(lateral) > 9 && onLake(car.x, car.z);
     if (st.onLake) name = 'lakeIce';
+    // Winter road: packed ruts down each lane (and fresh tyre tracks) stay fast; the powder between them doesn't
+    if (season === 'winter' && name === 'road' && st.air <= 0) {
+      if (!onRut(lateral) && !this.trackPacked(t, lateral, now)) name = 'powder';
+      if (Math.abs(car.speed) > 4) this.markTrack(t, lateral, now);
+    }
     car.surface = name;
+    this.lastNow = now;
+    // Black ice: the back end steps out and keeps swinging; catch it with the wheel.
+    if (name === 'ice' && speedFrac > 0.25) {
+      if (st.iceSide === 0) {
+        st.iceSide = Math.random() < 0.5 ? -1 : 1;
+        this.onEvent(car, 'ice');
+      }
+      const grip = 1 - Math.min(0.7, st.snow * 1.2); // a snow-laden car is steadier on ice
+      car.heading += st.iceSide * (0.5 + 0.45 * Math.sin(now * 2.6 + car.x * 0.01)) * speedFrac * grip * dt;
+      const rx = -Math.cos(car.heading), rz = Math.sin(car.heading);
+      ax += rx * st.iceSide * 2.4 * speedFrac * grip;
+      az += rz * st.iceSide * 2.4 * speedFrac * grip;
+    } else if (name !== 'ice') st.iceSide = 0;
     if (name !== st.lastSurface) {
       if (name === 'lakeIce') this.onEvent(car, 'lake');
       if (name === 'mud') this.onEvent(car, 'mud');
@@ -278,19 +327,52 @@ export class Hazards {
       az += w.z * GUST.accel * 0.6;
     }
 
-    // ---- Winter: snow piles up on the car; heater pads melt it off
-    st.onHeater = season === 'winter' && onHeater(t, lateral, this.track.length, this.map.offset);
-    st.warming = st.onHeater && Math.abs(car.speed) < SNOWLOAD.stopSpeed;
-    if (st.onHeater) {
-      // driving over a pad does nothing: you have to stop and sit on it
-      if (st.warming) {
-        if (st.snow > 0.05 && Math.random() < dt * 4) this.onEvent(car, 'heater');
-        st.snow -= SNOWLOAD.heater * dt;
-      } else st.snow += SNOWLOAD.fall * dt;
-    } else if (season === 'winter') {
-      st.snow += (SNOWLOAD.fall + (name === 'snow' ? SNOWLOAD.drift : 0) + (st.onLake ? SNOWLOAD.lake : 0)) * dt;
+    // ---- Winter: snow piles up on the car; snow ramps let you shake it off with a jump
+    const ri = season === 'winter' ? heaterAt(t, lateral, this.track.length, this.map.offset) : -1;
+    st.onHeater = ri >= 0;
+    st.warming = false;
+    st.heaterOut = false;
+    st.rampCd = Math.max(0, st.rampCd - dt);
+    if (ri >= 0 && st.air <= 0 && st.rampCd <= 0) {
+      st.rampCd = 1.2;
+      if (car.speed > RAMP.minSpeed) {
+        st.airT = st.air = RAMP.air * Math.min(1.25, 0.35 + car.speed / CAR.maxSpeed * 0.7);
+        this.onEvent(car, 'jump');
+      }
+    }
+    if (st.air > 0) {
+      st.air -= dt;
+      const p = 1 - st.air / st.airT;
+      st.airY = 4 * RAMP.height * Math.min(1.2, st.airT / RAMP.air) * p * (1 - p);
+      input = { ...input, steer: input.steer * 0.25 }; // no grip in the air
+      if (st.air <= 0) {
+        st.air = 0;
+        st.airY = 0;
+        if (st.snow > 0.05) st.snow -= RAMP.shake;
+        this.onEvent(car, 'land');
+      }
+    } else st.airY = 0;
+    if (season === 'winter') {
+      st.snow += (SNOWLOAD.fall + (name === 'snow' ? SNOWLOAD.drift : 0) + (name === 'powder' ? RUTS.powderLoad : 0) + (st.onLake ? SNOWLOAD.lake : 0)) * dt;
     } else {
       st.snow -= SNOWLOAD.melt * dt;
+    }
+    // Rolling snowballs: a hit spins you, kills your speed and dumps snow on you
+    if (season === 'winter' && st.air <= 0.1) {
+      for (const b of this.snowballs.rolling()) {
+        if (b.hit.has(car)) continue;
+        let d = (b.t - t) * this.track.length;
+        if (d > this.track.length / 2) d -= this.track.length;
+        if (d < -this.track.length / 2) d += this.track.length;
+        if (Math.abs(d) < b.r + 1.4 && Math.abs(b.lat - lateral) < b.r + 1.1) {
+          b.hit.add(car);
+          car.vx *= SNOWBALL.speedKeep;
+          car.vz *= SNOWBALL.speedKeep;
+          car.heading += (lateral > b.lat ? 1 : -1) * SNOWBALL.spin * (0.6 + Math.random() * 0.4);
+          st.snow += SNOWBALL.snow;
+          this.onEvent(car, 'snowball');
+        }
+      }
     }
     st.snow = Math.max(0, Math.min(1, st.snow));
     car.loadSpeed = 1 - (1 - SNOWLOAD.speedAtFull) * st.snow;
@@ -313,12 +395,34 @@ export class Hazards {
       st.crack = Math.max(0, st.crack - 2 * dt);
     }
 
-    return { input, surf: SURFACES[name], ax, az };
+    const surf = name === 'ice' ? { ...SURFACES.ice, grip: SURFACES.ice.grip + SNOW_ICE_GRIP * st.snow } : SURFACES[name];
+    return { input, surf, ax, az };
   }
 
   /** Falling branches (call once per tick with every car). */
+  private markTrack(t: number, lat: number, now: number) {
+    const n = this.track.samples.length;
+    const i = Math.floor((((t % 1) + 1) % 1) * n) % n;
+    const b = Math.round((lat + TRACK_HALF) / TRACK_BIN);
+    for (let k = -2; k <= 2; k++) {
+      const bb = b + k;
+      if (bb >= 0 && bb < TRACK_BINS) this.tracksAt[i * TRACK_BINS + bb] = now;
+    }
+  }
+
+  /** a car drove here between 0.6 s and RUTS.trackLife ago (your own fresh tracks don't count yet) */
+  private trackPacked(t: number, lat: number, now: number): boolean {
+    const n = this.track.samples.length;
+    const i = Math.floor((((t % 1) + 1) % 1) * n) % n;
+    const b = Math.round((lat + TRACK_HALF) / TRACK_BIN);
+    if (b < 0 || b >= TRACK_BINS) return false;
+    const age = now - this.tracksAt[i * TRACK_BINS + b];
+    return age > 0.6 && age < RUTS.trackLife;
+  }
+
   updateFalling(now: number, cars: CarProbe[]) {
     this.falling.update(now, cars);
+    this.snowballs.update(now, cars as BallProbe[]);
   }
 
   /** last branch hit per car: after a hit you only get pushed out, no repeat bounce */

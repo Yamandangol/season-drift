@@ -584,6 +584,25 @@ export class Sfx {
     this.tone(1200, 0.09, { type: 'square', vol: 0.12, delay: 0.14 });
   }
 
+  /** off a snow ramp: a rush of air */
+  jump() {
+    this.noise(0.6, { vol: 0.22, freq: 900, sweep: 2.4, q: 0.6, attack: 0.05 });
+    this.tone(220, 0.35, { type: 'triangle', vol: 0.08, slide: 1.8 });
+  }
+
+  /** landing: a heavy thump and a burst of snow coming off the car */
+  land() {
+    this.tone(70, 0.3, { type: 'sine', vol: 0.55, slide: 0.5 });
+    this.noise(0.35, { vol: 0.4, freq: 600, sweep: 0.5, type: 'lowpass' });
+    this.noise(0.6, { vol: 0.18, freq: 3500, sweep: 0.6, q: 0.8, delay: 0.05 });
+  }
+
+  /** a blizzard gust sweeping through */
+  blizzard() {
+    this.noise(2.8, { vol: 0.16, freq: 700, sweep: 2.2, q: 1.4, attack: 0.9 });
+    this.noise(2.4, { vol: 0.08, freq: 4200, sweep: 0.6, type: 'highpass', attack: 0.6, delay: 0.2 });
+  }
+
   /** a firework: whistle up, then a crackling bang */
   firework() {
     this.tone(900, 0.35, { type: 'sine', vol: 0.05, slide: 2.2, pan: Math.random() - 0.5 });

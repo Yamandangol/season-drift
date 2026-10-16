@@ -44,6 +44,8 @@ export interface Racer extends RacerConfig {
   frozenUntil: number;
   stuckTime: number;
   place: number;
+  /** online: this player disconnected mid-race (ranked last, never "finished") */
+  left?: boolean;
   /** remote racers: latest network snapshot and when it arrived (race clock) */
   snap?: CarSnap;
   snapAt?: number;
@@ -55,6 +57,8 @@ export interface Standing {
   color: number;
   place: number;
   finished: boolean;
+  /** disconnected mid-race */
+  left?: boolean;
   totalTime: number;
   lapTimes: number[];
 }
@@ -141,7 +145,7 @@ export class Race {
   /** Apply a snapshot from the network to a remote racer. */
   applySnap(s: CarSnap) {
     const r = this.racers.find((x) => x.id === s.id);
-    if (!r || r.kind !== 'remote') return;
+    if (!r || r.kind !== 'remote' || r.left) return;
     if (!r.snap) { r.car.x = s.x; r.car.z = s.z; r.car.heading = s.h; r.car.px = s.x; r.car.pz = s.z; r.car.pheading = s.h; }
     r.snap = s;
     r.snapAt = this.now;
@@ -159,6 +163,16 @@ export class Race {
     r.hz.warming = s.warm;
     r.car.stalledUntil = this.now + s.stall;
     r.car.surface = s.surf as Car['surface'];
+  }
+
+  /** A remote player disconnected: park their car and rank them last. The race no longer waits for them. */
+  markLeft(id: string): Racer | undefined {
+    const r = this.racers.find((x) => x.id === id);
+    if (!r || r.kind !== 'remote' || r.left || r.finished) return undefined;
+    r.left = true;
+    r.human = false;
+    if (r.snap) r.snap = { ...r.snap, x: r.car.x, z: r.car.z, vx: 0, vz: 0, sp: 0 };
+    return r;
   }
 
   /** Remote cars: glide toward where the latest snapshot says they are now. */
@@ -369,6 +383,7 @@ export class Race {
 
   progress(r: Racer): number {
     if (r.finished) return 1000 - r.finishTime / 1000;
+    if (r.left) return -100 + r.completed + r.car.trackPos.t; // behind everyone still racing
     return r.completed + r.car.trackPos.t;
   }
 
@@ -379,7 +394,7 @@ export class Race {
 
   private updateFinish() {
     if (this.phase !== 'racing' || this.firstFinishAt < 0) return;
-    const allDone = this.racers.every((r) => r.finished);
+    const allDone = this.racers.every((r) => r.finished || r.left);
     const localDone = this.local ? this.local.finished : true;
     const graceOver = this.now - this.firstFinishAt >= RACE.graceSeconds;
     // In solo, don't make the player wait for slow bots once they're done.
@@ -394,6 +409,7 @@ export class Race {
           color: r.color,
           place: r.place,
           finished: r.finished,
+          left: r.left,
           totalTime: r.finished ? r.finishTime : 0,
           lapTimes: r.lapTimes,
         }));

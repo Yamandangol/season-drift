@@ -1,6 +1,7 @@
 // Settings: remappable controls for both players, accessibility, sound and graphics.
 // Everything is saved in localStorage and applied live.
 
+import { icon } from './icons';
 import { DRIVE_ACTIONS, keyLabel, type DriveAction, type Input } from '../input/Input';
 
 export interface Prefs {
@@ -37,12 +38,12 @@ export class Settings {
     this.el.className = 'screen settings hidden';
     this.el.innerHTML = `
       <div class="set-card">
-        <div class="set-head"><span>⚙️</span><div class="set-title">Settings</div></div>
+        <div class="set-head"><span>${icon('gear')}</span><div class="set-title">Settings</div></div>
         <div class="set-tabs">
-          <button class="set-tab on" data-tab="controls">🎮 Controls</button>
-          <button class="set-tab" data-tab="access">♿ Accessibility</button>
-          <button class="set-tab" data-tab="sound">🔊 Sound</button>
-          <button class="set-tab" data-tab="gfx">✨ Graphics</button>
+          <button class="set-tab on" data-tab="controls">${icon('pad')} Controls</button>
+          <button class="set-tab" data-tab="access">${icon('access')} Accessibility</button>
+          <button class="set-tab" data-tab="sound">${icon('sound')} Sound</button>
+          <button class="set-tab" data-tab="gfx">${icon('sparkle')} Graphics</button>
         </div>
         <div class="set-page" data-page="controls">
           <div class="bind-grid">
@@ -53,21 +54,21 @@ export class Settings {
           <button class="btn secondary small" data-act="reset">↺ Reset keys</button>
         </div>
         <div class="set-page hidden" data-page="access">
-          <label class="tgl"><input type="checkbox" data-p="colorBlind"><span></span><div><b>Colour-blind friendly</b><small>Every colour cue gets an icon or number too: markers over hazards and heaters, a blue→orange heat scale, name tags on all cars</small></div></label>
+          <label class="tgl"><input type="checkbox" data-p="colorBlind"><span></span><div><b>Colour-blind friendly</b><small>Name tags on every car and a blue-to-orange heat scale instead of blue-to-red</small></div></label>
           <label class="tgl"><input type="checkbox" data-p="reduceFlashes"><span></span><div><b>Reduce flashes &amp; shake</b><small>No sun glare flashes, no camera shake, no speed lines</small></div></label>
           <label class="tgl"><input type="checkbox" data-p="nameTags"><span></span><div><b>Name tags over cars</b><small>See who's who at a glance</small></div></label>
           <div class="set-note">Bot difficulty (Easy / Normal / Hard) is on the main menu.</div>
         </div>
         <div class="set-page hidden" data-page="sound">
-          <label class="sld"><b>🎵 Music</b><input type="range" min="0" max="1" step="0.05" data-p="music"></label>
-          <label class="sld"><b>💥 Effects</b><input type="range" min="0" max="1" step="0.05" data-p="sfx"></label>
+          <label class="sld"><b>${icon('music')} Music</b><input type="range" min="0" max="1" step="0.05" data-p="music"></label>
+          <label class="sld"><b>${icon('burst')} Effects</b><input type="range" min="0" max="1" step="0.05" data-p="sfx"></label>
           <div class="set-note">All sound and music is made live in the browser. M mutes everything.</div>
         </div>
         <div class="set-page hidden" data-page="gfx">
-          <div class="row"><button class="chip" data-q="high">✨ High (glow + colour grade)</button><button class="chip" data-q="low">⚡ Fast</button></div>
+          <div class="row"><button class="chip" data-q="high">${icon('sparkle')} High (glow + colour grade)</button><button class="chip" data-q="low">${icon('bolt')} Fast</button></div>
           <div class="set-note">The game switches to Fast by itself if your computer can't keep up.</div>
         </div>
-        <button class="btn" data-act="close">✔ Done</button>
+        <button class="btn" data-act="close">${icon('check')} Done</button>
       </div>`;
     parent.appendChild(this.el);
 

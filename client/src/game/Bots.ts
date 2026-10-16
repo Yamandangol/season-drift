@@ -5,7 +5,7 @@ import { inStartZone, type Season } from '@shared/track';
 import { BOT, CAR, HEAT, type Difficulty } from '@shared/constants';
 import type { HazardType } from '@shared/hazards';
 import { FallingBranches } from '@shared/fallingBranches';
-import { HEATERS, heaterT } from '@shared/winter';
+import { HEATERS, heaterT, onRut, RAMP } from '@shared/winter';
 import { seasonAt, trackPoint, type TrackData } from '@shared/track';
 import type { InputState } from '../input/Input';
 import type { Car } from './Car';
@@ -72,13 +72,23 @@ export class Bot {
         const half = FallingBranches.half();
         if (lane >= b.lat - half - 1.3 && lane <= b.lat + half + 1.3) cost += b.phase === 'down' ? 100 : 70;
       }
-      // Winter: detour over a heater pad when loaded with snow.
-      if (season === 'winter' && st.snow > 0.35) {
-        for (const h of HEATERS) {
+      // Winter: stay in the packed ruts; dodge rolling snowballs
+      if (season === 'winter') {
+        if (!onRut(lane)) cost += 9;
+        for (const b of this.hazards.snowballs.rolling()) {
+          let d = (b.t - t) * len;
+          if (d < -len / 2) d += len;
+          if (d > -3 && d < 45 && Math.abs(lane - b.lat) < b.r + 2.5) cost += 55;
+        }
+      }
+      // Winter: line up a snow ramp when loaded with snow.
+      if (season === 'winter' && st.snow > 0.12) {
+        HEATERS.forEach((h, hi) => {
+          if (!this.hazards.heaterLit(hi)) return; // burnt out: not worth the detour
           let d = (heaterT(h, this.hazards.map.offset) - t) * len;
           if (d < -len / 2) d += len;
-          if (d > 0 && d < 60 && lane >= h.lat0 && lane <= h.lat1) cost -= 30 * st.snow;
-        }
+          if (d > 0 && d < 80 && lane >= h.lat0 && lane <= h.lat1) cost -= 25 + 40 * st.snow;
+        });
       }
       // Spring: thread the petal chain.
       if (nextPetal && Math.abs(lane - nextPetal.lat) < 2.5) cost -= 45 + st.chain * 2;
@@ -129,8 +139,8 @@ export class Bot {
       if (d > 0 && d < 38) target = Math.min(target, 12 + d * 0.5);
     }
     // Winter: park on a heater pad to defrost
-    if (season === 'winter' && st.snow > 0.08 && st.onHeater) target = 0;
-    else if (season === 'winter' && st.snow > 0.3 && this.lat >= -9 && this.padAhead(t, len, car.speed)) target = Math.min(target, 18);
+    // Winter: hit the ramp fast enough to jump
+    if (season === 'winter' && st.snow > 0.12 && this.padAhead(t, len, car.speed)) target = Math.max(target, RAMP.minSpeed + 6);
     if (st.blind > 0) target *= 0.72;
     let throttle = car.speed < target + 1 ? 1 : 0;
     const brake = car.speed > target + (target === 0 ? 0.5 : 3) ? 1 : 0;
@@ -148,11 +158,11 @@ export class Bot {
 
   /** a pad in our lane is within braking distance */
   private padAhead(t: number, len: number, speed: number): boolean {
-    for (const h of HEATERS) {
+    return HEATERS.some((h, hi) => {
+      if (!this.hazards.heaterLit(hi)) return false;
       let d = (heaterT(h, this.hazards.map.offset) - t) * len;
       if (d < -len / 2) d += len;
-      if (d > 0 && d < 30 && this.targetLat >= h.lat0 && this.targetLat <= h.lat1) return true;
-    }
-    return false;
+      return d > 0 && d < 30 && this.targetLat >= h.lat0 && this.targetLat <= h.lat1;
+    });
   }
 }
