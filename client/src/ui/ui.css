@@ -576,3 +576,16 @@ body.touch .mute-btn { right: 64px; }
 .fx-speed:not(.on) { animation-play-state: paused; }
 .fx-drops:not(.on) { visibility: hidden; }
 .fx-drops:not(.on) i { animation-play-state: paused; }
+
+/* ---------- season boundary flourish ---------- */
+.fx-flourish { position: absolute; inset: 0; pointer-events: none; overflow: hidden; contain: strict; }
+.fx-flourish::before { content: ''; position: absolute; inset: 0; opacity: 0; animation: flourishGlow 1.4s ease-out forwards;
+  background: radial-gradient(ellipse at 50% 50%, transparent 45%, var(--fc) 100%); }
+.fx-flourish.calm::before { animation-duration: 2s; }
+.fx-flourish.s0 { --fc: rgba(255,140,190,.55); } .fx-flourish.s1 { --fc: rgba(255,190,60,.55); }
+.fx-flourish.s2 { --fc: rgba(230,110,40,.55); } .fx-flourish.s3 { --fc: rgba(170,215,255,.6); }
+.fx-flourish i { position: absolute; left: -10%; font-style: normal; animation: flourishSweep 1.2s cubic-bezier(.3,.6,.4,1) forwards; }
+.fx-flourish.s1 i, .fx-flourish.s3 i { animation-name: flourishFall; left: auto; }
+@keyframes flourishGlow { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes flourishSweep { from { transform: translateX(0) rotate(0deg); opacity: 1; } to { transform: translateX(125vw) rotate(540deg); opacity: .2; } }
+@keyframes flourishFall { from { transform: translate(var(--x, 0), -20vh) rotate(0deg); opacity: 1; } to { transform: translate(var(--x, 0), 110vh) rotate(360deg); opacity: .2; } }

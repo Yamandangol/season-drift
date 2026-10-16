@@ -157,6 +157,8 @@ interface View {
   hud: HUD;
   fx: ScreenFx;
   side: 'full' | 'left' | 'right';
+  /** last season this view's car was in (for the boundary flourish) */
+  lastSi?: number;
 }
 function newView(side: View['side'], h: HUD, fx: ScreenFx, cam: THREE.PerspectiveCamera): View {
   return { racer: null, cam, pos: new THREE.Vector3(), look: new THREE.Vector3(), shake: 0, roll: 0, rollTarget: 0, snap: true, hud: h, fx, side };
@@ -409,6 +411,30 @@ hazards.onEvent = (car, e) => {
   if (e === 'iceBreak') v.shake = 0.9;
 };
 
+/** Crossing into a new season: a themed burst around the car + a quick sweep across that player's screen. */
+function seasonFlourish(v: View, si: number, car: Car) {
+  const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
+  const ahead = (d: number, side: number) => [car.x + fx * d + fz * side, car.z + fz * d - fx * side] as const;
+  const vel = { vx: car.vx * 0.6, vz: car.vz * 0.6 }; // travel with the car so the burst surrounds you
+  for (let k = 0; k < 46; k++) {
+    const [x, z] = ahead(2 + Math.random() * 14, (Math.random() - 0.5) * 14);
+    switch (si) {
+      case 0: // spring: pink petals drifting down
+        particles.emit(x, 2 + Math.random() * 4, z, 1, [0xffb7d5, 0xff8cc0, 0xffe0ee][k % 3], { speed: 2, up: 1, gravity: 1.2, life: 1.6, size: 0.35, ...vel });
+        break;
+      case 1: // summer: golden sparks rising off the road
+        particles.emit(x, 0.3, z, 1, [0xffe27a, 0xffb627, 0xfff4c2][k % 3], { speed: 1.5, up: 6, gravity: -1, life: 1.1, size: 0.3, ...vel });
+        break;
+      case 2: // autumn: a gust of leaves
+        particles.emit(x, 1 + Math.random() * 3, z, 1, [0xe0662a, 0xc8402a, 0xf0a030, 0xb8541e][k % 4], { speed: 5, up: 3, gravity: 2.5, life: 1.5, size: 0.45, ...vel });
+        break;
+      default: // winter: a flurry of snow from above
+        particles.emit(x, 5 + Math.random() * 3, z, 1, 0xffffff, { speed: 1.5, up: -3, gravity: 3, life: 1.6, size: 0.3, ...vel });
+    }
+  }
+  v.fx.flourish(si, prefs.reduceFlashes);
+}
+
 // Falling branch lands: burst of leaves + bark, thump if it's close to the player.
 hazards.falling.onLand = (b) => {
   const s = track.samples[Math.floor(b.t * track.samples.length) % track.samples.length];
@@ -464,6 +490,7 @@ function makeRace(configs: RacerConfig[], d: Difficulty) {
     v.hud.resetSeason(4);
     v.snap = true;
     v.shake = 0;
+    v.lastSi = undefined;
     setAspect(v);
   }
   hud.show(false);
@@ -865,6 +892,10 @@ function frame(now: number) {
       const c = me.car;
       const si = inStartZone(c.trackPos.t, track.length) ? 4 : seasonIndexAt(c.trackPos.t, hazards.map.offset);
       hud.popSeason(si);
+      if (v.lastSi !== si) {
+        if (v.lastSi !== undefined && si < 4 && state === 'race' && race.now > race.startAt) seasonFlourish(v, si, c);
+        v.lastSi = si;
+      }
       if (v === views[0] && state === 'race' && race.now > race.startAt + 1 && me.place !== lastPlaceSfx) {
         if (lastPlaceSfx > 0) sfx.place(me.place < lastPlaceSfx);
         lastPlaceSfx = me.place;

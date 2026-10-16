@@ -104,7 +104,7 @@ export class ScreenFx {
   private mud = 0;
   reduceFlashes = false;
 
-  constructor(root: HTMLElement) {
+  constructor(private root: HTMLElement) {
     this.glareEl = div(root, 'fx-glare');
     this.flareEl = div(root, 'fx-flare');
     this.mudEl = div(root, 'fx-mud');
@@ -206,6 +206,25 @@ export class ScreenFx {
   update(dt: number) {
     this.mud = Math.max(0, this.mud - dt);
     this.mudEl.style.opacity = String(Math.min(1, this.mud / 0.6));
+  }
+
+  /** quick seasonal sweep across the screen when a new season starts */
+  flourish(si: number, calm = false) {
+    const ICONS = ['🌸', '☀️', '🍂', '❄️'];
+    const el = document.createElement('div');
+    el.className = `fx-flourish s${si}${calm ? ' calm' : ''}`;
+    if (!calm) {
+      for (let i = 0; i < 9; i++) {
+        const s = document.createElement('i');
+        s.textContent = ICONS[si];
+        const fall = si === 1 || si === 3; // sun and snow fall from the top; petals and leaves sweep across
+        s.style.cssText = (fall ? `left:${(4 + Math.random() * 88).toFixed(1)}%;top:0;` : `top:${8 + Math.random() * 78}%;`) +
+          `font-size:${26 + Math.random() * 30}px;animation-delay:${(Math.random() * 0.35).toFixed(2)}s`;
+        el.appendChild(s);
+      }
+    }
+    this.root.appendChild(el);
+    window.setTimeout(() => el.remove(), 1700);
   }
 
   reset() {
