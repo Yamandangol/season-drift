@@ -233,7 +233,7 @@ export class Race {
       }
       if (r.finished && r.bot === undefined) {
         // Finished players coast to a stop.
-        inp = { ...NO_INPUT, brake: 0.3 };
+        inp = { ...NO_INPUT, brake: r.car.speed > 0.5 ? 1 : 0 }; // stop on the line (and don't start reversing): the race is over, don't roll on into spring
       }
 
       const env = this.hazards.pre(r.car, r.hz, inp, dt, this.now);

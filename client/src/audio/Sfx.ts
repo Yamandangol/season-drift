@@ -584,6 +584,13 @@ export class Sfx {
     this.tone(1200, 0.09, { type: 'square', vol: 0.12, delay: 0.14 });
   }
 
+  /** a firework: whistle up, then a crackling bang */
+  firework() {
+    this.tone(900, 0.35, { type: 'sine', vol: 0.05, slide: 2.2, pan: Math.random() - 0.5 });
+    this.noise(0.5, { vol: 0.3, freq: 1200, sweep: 0.3, type: 'lowpass', delay: 0.32 });
+    for (let i = 0; i < 6; i++) this.noise(0.04, { vol: 0.08, freq: 4000 + Math.random() * 3000, q: 2, delay: 0.4 + i * 0.06 + Math.random() * 0.04, attack: 0.002 });
+  }
+
   /** the engine bursts into flames */
   stall() {
     this.noise(0.9, { vol: 0.5, freq: 900, sweep: 0.4, type: 'lowpass', q: 0.4 });

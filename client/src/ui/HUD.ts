@@ -207,12 +207,24 @@ export class HUD {
   popSeason(idx: number) {
     if (idx === this.lastSeason) return;
     this.lastSeason = idx;
+    this.season.classList.remove('stay');
     const NAMES = ['SPRING', 'SUMMER', 'AUTUMN', 'WINTER', 'START'];
     const TIPS = ['🌸 chain the petals', '☁️ brake in a cloud to cool', '🍂 kick leaves back', '🔥 stop on heaters', ''];
     this.season.innerHTML = `<span class="s-icon">${PALETTES[idx].icon}</span><span class="s-name s${idx}">${NAMES[idx]}</span><span class="s-tip">${TIPS[idx]}</span>`;
     this.season.classList.remove('pop');
     void this.season.offsetWidth; // restart animation
     this.season.classList.add('pop');
+  }
+
+  /** the big banner when you cross the finish line (replaces the season banners) */
+  popFinish(place: number) {
+    if (this.lastSeason === 99) return;
+    this.lastSeason = 99;
+    const icon = place === 1 ? '🏆' : place === 2 ? '🥈' : place === 3 ? '🥉' : '🏁';
+    this.season.innerHTML = `<span class="s-icon">${icon}</span><span class="s-name fin">FINISH</span><span class="s-tip">${ordinal(place)} place${place === 1 ? ' · you won the year!' : ''}</span>`;
+    this.season.classList.remove('pop', 'stay');
+    void this.season.offsetWidth;
+    this.season.classList.add('pop', 'stay');
   }
 
   /** short centre-screen message (e.g. "🍂 BLINDED!") */

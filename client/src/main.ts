@@ -506,7 +506,7 @@ function makeRace(configs: RacerConfig[], d: Difficulty) {
   passSide.clear();
   lastPlaceSfx = 0;
   race.onLap = (r) => { if (r.kind === 'local') sfx.lap(); };
-  race.onFinish = (r) => { if (r.kind === 'local') sfx.finish(r.place === 1); };
+  race.onFinish = (r) => { if (r.kind === 'local') { sfx.finish(r.place === 1); celebrate(r); } };
   race.onResults = (standings) => {
     if (state !== 'race' && state !== 'paused') return;
     state = 'results';
@@ -624,6 +624,42 @@ function updateCamera(v: View, x: number, z: number, heading: number, speed: num
   }
 }
 
+/** After the finish: swing round to the front of the car and slowly circle it. */
+function finishCamera(v: View, x: number, z: number, heading: number, t: number, dt: number) {
+  const camera = v.cam;
+  const a = heading + Math.PI + Math.min(1, t / 2.5) * Math.PI * 0.85 + Math.max(0, t - 2.5) * 0.25;
+  const r = 9 - Math.min(1, t / 2.5) * 2;
+  _target.set(x + Math.sin(a) * r, 3 + Math.min(1, t / 2.5) * 0.6, z + Math.cos(a) * r);
+  _look.set(x, 1.1, z);
+  v.pos.lerp(_target, 1 - Math.exp(-3 * dt));
+  v.look.lerp(_look, 1 - Math.exp(-4 * dt));
+  camera.position.copy(v.pos);
+  camera.lookAt(v.look);
+  v.roll += (0 - v.roll) * Math.min(1, dt * 3);
+  if (Math.abs(camera.fov - CAMERA.baseFov) > 0.05) {
+    camera.fov += (CAMERA.baseFov - camera.fov) * Math.min(1, dt * 3);
+    camera.updateProjectionMatrix();
+  }
+}
+
+/** Confetti at the line and a few fireworks over the car. */
+function celebrate(r: Racer) {
+  const COLS = [0xff5a8a, 0xffd34d, 0x46c97a, 0x4fa8ff, 0xb28be0, 0xff8a3a];
+  for (let k = 0; k < 60; k++) {
+    particles.emit(r.car.x + (Math.random() - 0.5) * 6, 0.6, r.car.z + (Math.random() - 0.5) * 6, 1, COLS[k % COLS.length], { speed: 4, up: 9, gravity: 6, life: 2, size: 0.28 });
+  }
+  for (let i = 0; i < 6; i++) {
+    window.setTimeout(() => {
+      if (!race) return;
+      const x = r.car.x + (Math.random() - 0.5) * 24, z = r.car.z + (Math.random() - 0.5) * 24, y = 11 + Math.random() * 6;
+      const c = COLS[i % COLS.length];
+      particles.emit(x, y, z, 36, c, { speed: 10, up: 2, gravity: 3, life: 1.3, size: 0.32 });
+      particles.emit(x, y, z, 12, 0xffffff, { speed: 6, up: 1, gravity: 3, life: 0.8, size: 0.22 });
+      sfx.firework();
+    }, 300 + i * 380);
+  }
+}
+
 // ---------- Loop ----------
 const debug = document.getElementById('debug')!;
 const NO_INPUT: InputState = { throttle: 0, brake: 0, steer: 0, item: false, respawn: false, pause: false };
@@ -726,7 +762,8 @@ function frame(now: number) {
     for (const v of views) {
       const fr = v.racer ?? leader;
       const fp = Race.pose(fr.car, a);
-      updateCamera(v, fp.x, fp.z, fp.heading, fr.car.speed, dt);
+      if (v.racer && v.racer.finished) finishCamera(v, fp.x, fp.z, fp.heading, race.now - race.startAt - v.racer.finishTime, dt);
+      else updateCamera(v, fp.x, fp.z, fp.heading, fr.car.speed, dt);
     }
     const focus = views[0].racer ?? leader;
     const camera = views[0].cam;
@@ -891,8 +928,9 @@ function frame(now: number) {
       const hud = v.hud;
       const c = me.car;
       const si = inStartZone(c.trackPos.t, track.length) ? 4 : seasonIndexAt(c.trackPos.t, hazards.map.offset);
-      hud.popSeason(si);
-      if (v.lastSi !== si) {
+      if (me.finished) hud.popFinish(me.place);
+      else hud.popSeason(si);
+      if (!me.finished && v.lastSi !== si) {
         if (v.lastSi !== undefined && si < 4 && state === 'race' && race.now > race.startAt) seasonFlourish(v, si, c);
         v.lastSi = si;
       }
@@ -934,7 +972,7 @@ function frame(now: number) {
           if (n !== lastCd) { lastCd = n; if (n >= 1 && n <= 3) sfx.beep(false); else if (n <= 0) sfx.beep(true); }
         }
       }
-      hud.showKeys(race.now < race.startAt + 5);
+      hud.showKeys(race.now < race.startAt + 5 && !me.finished);
       hud.update({
         place: me.place,
         total: race.racers.length,
