@@ -1,8 +1,9 @@
 // Arcade car physics on the XZ plane. Local car only (remote cars are interpolated).
 // Heading convention: forward = (sin h, cos h), right = (-cos h, sin h).
 
-import { CAR, SURFACES, TRACK, type Surface, type SurfaceName } from '@shared/constants';
+import { BOOST, CAR, SURFACES, TRACK, type Surface, type SurfaceName } from '@shared/constants';
 import { queryTrack, trackPoint, type TrackData, type TrackPos } from '@shared/track';
+import { lakeShoreOpen } from '@shared/lake';
 import type { InputState } from '../input/Input';
 
 export class Car {
@@ -25,6 +26,24 @@ export class Car {
   surface: SurfaceName = 'road';
   /** set when the car hit a wall this tick (for camera shake / SFX) */
   hitWall = 0;
+  /** bots use this for difficulty; players stay at 1 */
+  maxSpeedMult = 1;
+  userData: Record<string, unknown> = {};
+  /** summer heat boost: active until this race time, with this top-speed multiplier */
+  boostUntil = 0;
+  /** set by Hazards when the car keeps slamming into the same obstacle */
+  needsRescue = false;
+  /** set when the car fell through the lake ice (extra penalty on rescue) */
+  fellThrough = false;
+  boostMult = 1;
+  /** spring petal-chain bonus (set by Hazards) */
+  petalMult = 1;
+  /** fraction of top speed the engine alone can reach (autumn clogs it) */
+  engineCap = 1;
+  /** winter snow load 0..1 multipliers (set by Hazards) */
+  loadSpeed = 1;
+  loadAccel = 1;
+  loadSteer = 1;
 
   constructor(private track: TrackData) {}
 
@@ -37,34 +56,44 @@ export class Car {
     this.trackPos = queryTrack(this.track, this.x, this.z);
   }
 
-  respawn() {
-    this.placeAt(this.trackPos.t, 0);
+  respawn(lateral = 0) {
+    this.needsRescue = false;
+    this.placeAt(this.trackPos.t, lateral);
   }
 
-  step(input: InputState, dt: number) {
+  /**
+   * @param surf ground surface under the car (decided by Hazards)
+   * @param ax,az extra world-space acceleration (wind gusts, hydroplane nudge)
+   */
+  step(input: InputState, dt: number, surf: Surface = SURFACES.road, ax = 0, az = 0) {
     this.px = this.x;
     this.pz = this.z;
     this.pheading = this.heading;
     this.hitWall = 0;
 
-    // Surface (Phase 1 adds hazards on top of this).
-    const halfRoad = TRACK.roadWidth / 2;
-    this.surface = Math.abs(this.trackPos.lateral) > halfRoad ? 'grass' : 'road';
-    const surf: Surface = SURFACES[this.surface];
+    // 1. Steering first (authority from the current forward speed).
+    const fwd0 = this.vx * Math.sin(this.heading) + this.vz * Math.cos(this.heading);
+    const speedFrac = Math.min(1, Math.abs(fwd0) / CAR.maxSpeed);
+    const authority =
+      Math.min(1, Math.abs(fwd0) / CAR.steerFullSpeed) * (1 - CAR.steerHighSpeedLoss * speedFrac) * surf.steerMult * this.loadSteer;
+    this.heading -= input.steer * CAR.steerRate * authority * Math.sign(fwd0) * dt;
 
+    // 2. Split the (unchanged) world velocity into the NEW heading frame.
+    // Whatever doesn't line up with the nose becomes sideways velocity, and grip
+    // decides how fast that is killed: high grip = car follows its nose,
+    // low grip (ice, leaves, water) = car keeps sliding the old way.
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     const rx = -Math.cos(this.heading), rz = Math.sin(this.heading);
-
     let fwd = this.vx * fx + this.vz * fz;
     let lat = this.vx * rx + this.vz * rz;
 
-    const maxF = CAR.maxSpeed * surf.maxSpeedMult;
+    const maxF = CAR.maxSpeed * surf.maxSpeedMult * this.maxSpeedMult * this.boostMult * this.petalMult * this.loadSpeed;
     const maxR = -CAR.maxSpeed * CAR.reverseFrac;
 
-    // 1. Throttle / brake / reverse
+    // 3. Throttle / brake / reverse
     if (input.throttle > 0) {
       if (fwd < 0) fwd += CAR.brakeDecel * surf.brakeMult * input.throttle * dt; // braking out of reverse
-      else if (fwd < maxF) fwd = Math.min(maxF, fwd + CAR.accel * input.throttle * dt);
+      else if (fwd < maxF * this.engineCap) fwd = Math.min(maxF * this.engineCap, fwd + CAR.accel * surf.accelMult * this.loadAccel * this.petalMult * (this.boostMult > 1 ? BOOST.accelMult : 1) * input.throttle * dt);
     }
     if (input.brake > 0) {
       if (fwd > 0.5) fwd = Math.max(0, fwd - CAR.brakeDecel * surf.brakeMult * input.brake * dt);
@@ -74,25 +103,24 @@ export class Car {
     // Pulled down to a lowered max speed (mud, grass, snow).
     if (fwd > maxF) fwd -= (fwd - maxF) * CAR.overSpeedPull * dt;
 
-    // 2. Steering: scales with speed, a bit less at the top end.
-    const speedFrac = Math.min(1, Math.abs(fwd) / CAR.maxSpeed);
-    const authority =
-      Math.min(1, Math.abs(fwd) / CAR.steerFullSpeed) * (1 - CAR.steerHighSpeedLoss * speedFrac) * surf.steerMult;
-    this.heading -= input.steer * CAR.steerRate * authority * Math.sign(fwd) * dt;
+    // 4. Grip: turn part of the sideways velocity back into the nose direction
+    // (tyres redirect momentum), the rest scrubs off.
+    // Speed is preserved (minus a little scrub), never gained.
+    const kill = Math.min(1, surf.grip * dt * CAR.gripK);
+    if (kill > 0 && lat !== 0) {
+      const total = Math.hypot(fwd, lat) * (1 - 0.15 * kill * Math.min(1, Math.abs(lat) / (Math.abs(fwd) + 1)));
+      lat *= 1 - kill;
+      const f = Math.sqrt(Math.max(0, total * total - lat * lat));
+      fwd = fwd >= 0 ? Math.min(Math.max(fwd, 0) + (f - Math.abs(fwd)), f) : -f;
+    }
 
-    // 3. Grip: kill part of the sideways velocity. Low grip = sliding.
-    lat *= Math.max(0, 1 - surf.grip * dt * CAR.gripK);
-
-    // 4. Drag
+    // 5. Drag
     fwd *= 1 - CAR.drag * surf.dragMult * dt;
-    if (input.throttle === 0 && input.brake === 0 && Math.abs(fwd) < 0.3) fwd = 0;
+    if (input.throttle === 0 && input.brake === 0 && Math.abs(fwd) < 0.3 && Math.abs(lat) < 0.3) fwd = lat = 0;
 
-    // Recompose velocity in the (new) heading frame. Lateral velocity carries
-    // over from the old frame, which is what makes slides feel right.
-    const nfx = Math.sin(this.heading), nfz = Math.cos(this.heading);
-    const nrx = -Math.cos(this.heading), nrz = Math.sin(this.heading);
-    this.vx = nfx * fwd + nrx * lat;
-    this.vz = nfz * fwd + nrz * lat;
+    const nfx = fx, nfz = fz;
+    this.vx = fx * fwd + rx * lat + ax * dt;
+    this.vz = fz * fwd + rz * lat + az * dt;
 
     this.x += this.vx * dt;
     this.z += this.vz * dt;
@@ -101,7 +129,8 @@ export class Car {
     this.trackPos = queryTrack(this.track, this.x, this.z, this.trackPos.index);
     const limit = TRACK.wallOffset - CAR.radius;
     const latPos = this.trackPos.lateral;
-    if (Math.abs(latPos) > limit) {
+    // The frozen lake's shore has no wall: you can drive straight out onto the ice.
+    if (Math.abs(latPos) > limit && !(latPos > 0 && lakeShoreOpen(this.x, this.z))) {
       const s = this.track.samples[this.trackPos.index];
       const push = Math.abs(latPos) - limit;
       const sign = Math.sign(latPos); // + = left side
@@ -127,5 +156,10 @@ export class Car {
     }
 
     this.speed = this.vx * nfx + this.vz * nfz;
+  }
+
+  /** Recompute track position after the car was moved from outside (network). */
+  syncTrackPos() {
+    this.trackPos = queryTrack(this.track, this.x, this.z, this.trackPos.index);
   }
 }

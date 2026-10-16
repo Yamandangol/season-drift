@@ -14,7 +14,10 @@ export interface Vec2 {
  * Shape: long start straight, sweepers, a hairpin, and a long back straight
  * (planned summer sun-glare straight).
  */
-export const CONTROL_POINTS: Vec2[] = [
+/** The whole loop is scaled up by this much (one longer lap instead of three short ones). */
+export const TRACK_SCALE = 1.3;
+
+const BASE_POINTS: Vec2[] = [
   { x: 0, z: 0 },
   { x: 0, z: 120 },
   { x: 10, z: 220 },
@@ -38,14 +41,34 @@ export const CONTROL_POINTS: Vec2[] = [
   { x: 60, z: -170 },
   { x: 10, z: -100 },
 ];
+export const CONTROL_POINTS: Vec2[] = BASE_POINTS.map((p) => ({ x: p.x * TRACK_SCALE, z: p.z * TRACK_SCALE }));
 
 /** Sector boundaries in t. Spring, Summer, Autumn, Winter. */
 export const SEASONS = ['spring', 'summer', 'autumn', 'winter'] as const;
 export type Season = (typeof SEASONS)[number];
 
+export type SeasonIndex = 0 | 1 | 2 | 3;
+
+/** Sector index (0..3) for a t in [0,1). */
+export function sectorAt(t: number): number {
+  return Math.min(3, Math.floor((((t % 1) + 1) % 1) * 4));
+}
+
+/**
+ * Seasons can rotate around the track (Shifting Seasons). Season i lives in
+ * sector (i + offset) % 4.
+ */
+export function seasonIndexAt(t: number, offset = 0): number {
+  return (((sectorAt(t) - offset) % 4) + 4) % 4;
+}
+
 export function seasonAt(t: number, offset = 0): Season {
-  const idx = Math.floor(((t + 1) % 1) * 4);
-  return SEASONS[(idx - offset + 4 * 100) % 4];
+  return SEASONS[seasonIndexAt(t, offset)];
+}
+
+/** Convert a season-local position s in [0,1) to world t. */
+export function seasonToT(seasonIdx: number, s: number, offset = 0): number {
+  return ((((seasonIdx + offset) % 4) + s) / 4) % 1;
 }
 
 // ---------- Centripetal-free uniform Catmull-Rom (closed) ----------
@@ -84,6 +107,35 @@ export interface TrackData {
 }
 
 /** Build an arc-length-uniform lookup table. Call once at load. */
+/**
+ * The start line sits this far (in raw arc fraction) around the loop, so the
+ * sectors land on the right kind of road: summer gets the long sun straight,
+ * autumn gets the hairpin + sweepers, winter ends with braking corners.
+ */
+export const START_SHIFT = 0.25;
+
+/** The start/finish straight has no season: grid and line sit in a neutral zone (units). */
+export const START_ZONE = { before: 42, after: 22, fade: 18 } as const;
+
+/** Signed distance (units) from the start line, in (-len/2, len/2]. */
+function fromStart(t: number, length: number): number {
+  let d = ((((t % 1) + 1) % 1)) * length;
+  if (d > length / 2) d -= length;
+  return d;
+}
+
+export function inStartZone(t: number, length: number): boolean {
+  const d = fromStart(t, length);
+  return d > -START_ZONE.before && d < START_ZONE.after;
+}
+
+/** 1 inside the start zone, fading to 0 over START_ZONE.fade outside it (for visuals). */
+export function startZoneK(t: number, length: number): number {
+  const d = fromStart(t, length);
+  const out = d < 0 ? -START_ZONE.before - d : d - START_ZONE.after;
+  return out <= 0 ? 1 : Math.max(0, 1 - out / START_ZONE.fade);
+}
+
 export function buildTrackData(count: number = TRACK.lutSamples): TrackData {
   // Dense raw sampling -> cumulative lengths -> resample uniformly.
   const dense = count * 8;
@@ -105,6 +157,9 @@ export function buildTrackData(count: number = TRACK.lutSamples): TrackData {
     const z = pts[j].z + (pts[j + 1].z - pts[j].z) * u;
     samples.push({ x, z, tx: 0, tz: 0, nx: 0, nz: 0 });
   }
+  // Rotate so index 0 is the start line.
+  const shift = Math.round(START_SHIFT * count);
+  samples.push(...samples.splice(0, shift));
   for (let i = 0; i < count; i++) {
     const a = samples[(i - 1 + count) % count];
     const b = samples[(i + 1) % count];
